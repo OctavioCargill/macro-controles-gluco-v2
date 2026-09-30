@@ -27,5 +27,6 @@ def cargar_044(ruta_archivo: str) -> pd.DataFrame:
     df = df.reset_index(drop=True)
 
     print(f"044 cargado: {len(df)} registros")
+    print(list(enumerate(df.columns, start=1)))
 
     return df

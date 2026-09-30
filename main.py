@@ -10,6 +10,10 @@ from processors.resultado_final import (
     calcular_resultado_final
 )
 
+from processors.fechas_pago import (
+    asignar_dias_pago
+)
+
 from processors.beneficiarios import (
 determinar_beneficiario
 )
@@ -111,6 +115,8 @@ def main():
         df,
         df_090
     )
+    
+    df = asignar_dias_pago(df)
 
     df = determinar_beneficiario(df)
 
@@ -248,6 +254,40 @@ def main():
         ajustes
     )
 
+    print()
+    print("=" * 50)
+    print("FECHAS DE PAGO")
+    print("=" * 50)
+
+    print(
+        df[
+            [
+                "Condicion de Pago",
+                "Fecha Pago"
+            ]
+        ]
+        .drop_duplicates()
+        .sort_values("Condicion de Pago")
+    )
+
+    print()
+    print("=" * 50)
+    print("ANALISIS FECHAS")
+    print("=" * 50)
+
+    print()
+    print("=" * 50)
+    print("CONDICIONES DE PAGO")
+    print("=" * 50)
+
+    conteo = (
+        df["RESULTADO_CONDICION"]
+        .value_counts(dropna=False)
+    )
+
+    for estado, cantidad in conteo.items():
+        print(f"{estado:<20} : {cantidad}")
+        
     print()
     print("=" * 50)
     print("EXPORTACION")
