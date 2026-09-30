@@ -5,7 +5,6 @@ def determinar_beneficiario(df):
 
     df["TIPO_BENEFICIARIO"] = "NO_IDENTIFICADO"
 
-    # BENEFICIARIO = VENDEDOR
     mask_vendedor = (
         df["AB Beneficiario del Pago"]
         ==
@@ -17,7 +16,6 @@ def determinar_beneficiario(df):
         "TIPO_BENEFICIARIO"
     ] = "VENDEDOR"
 
-    # BENEFICIARIO = CORREDOR
     mask_corredor = (
         df["AB Beneficiario del Pago"]
         ==
@@ -29,7 +27,6 @@ def determinar_beneficiario(df):
         "TIPO_BENEFICIARIO"
     ] = "CORREDOR"
 
-    # BENEFICIARIO = CESION
     mask_cesion = (
         df["AB Beneficiario de Cesion"]
         .notna()
@@ -40,12 +37,14 @@ def determinar_beneficiario(df):
         "TIPO_BENEFICIARIO"
     ] = "CESION"
 
-    # RESULTADO BENEFICIARIO
+    # NUEVO
+
     df["RESULTADO_BENEFICIARIO"] = "OK"
+
     df.loc[
-    df["TIPO_BENEFICIARIO"]
-    == "NO_IDENTIFICADO",
-    "RESULTADO_BENEFICIARIO"
+        df["TIPO_BENEFICIARIO"]
+        == "NO_IDENTIFICADO",
+        "RESULTADO_BENEFICIARIO"
     ] = "ERROR-BENEFICIARIO"
 
     return df

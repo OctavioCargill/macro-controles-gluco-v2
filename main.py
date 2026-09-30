@@ -183,33 +183,43 @@ def main():
     print("BENEFICIARIOS")
     print("=" * 50)
 
-    print(
+    conteo = (
         df["TIPO_BENEFICIARIO"]
         .value_counts(dropna=False)
     )
 
-    print()
-    print("=" * 50)
-    print("CESIONES")
-    print("=" * 50)
+    for tipo, cantidad in conteo.items():
+        print(f"{tipo:<12} : {cantidad}")
 
-    print(
-        df["RESULTADO_CESION"]
+    print()
+
+    print("VALIDACION")
+
+    resultado = (
+        df["RESULTADO_BENEFICIARIO"]
         .value_counts(dropna=False)
     )
 
-    # exportar_resultado(df)
-    exportar_resultado(
-    df,
-    parciales,
-    finales,
-    comisiones,
-    ajustes
-    )
-    print()
-    print("=" * 50)
-    print("PROCESO FINALIZADO")
-    print("=" * 50)
+    for estado, cantidad in resultado.items():
+        print(f"{estado:<20} : {cantidad}")
+
+        print()
+        print("=" * 50)
+        print("CESIONES")
+        print("=" * 50)
+
+        conteo = (
+            df["RESULTADO_CESION"]
+            .value_counts(dropna=False)
+        )
+
+        for resultado, cantidad in conteo.items():
+            print(f"{resultado:<30} : {cantidad}")
+
+        print()
+        print("=" * 50)
+        print("PROCESO FINALIZADO")
+        print("=" * 50)
 
 
 if __name__ == "__main__":
