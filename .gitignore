@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Entornos virtuales
+venv/
+.env
+
+# Archivos SAP
+data/*.xlsx
+data/*.xlsm
+data/*.xlsb
+
+# Output
+output/*.xlsx
+
+# Logs
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
