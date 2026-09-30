@@ -6,6 +6,10 @@ warnings.filterwarnings(
     module="openpyxl"
 )
 
+from processors.resultado_final import (
+    calcular_resultado_final
+)
+
 from processors.beneficiarios import (
 determinar_beneficiario
 )
@@ -51,6 +55,7 @@ def main():
     print()
     print("=" * 50)
     print("CONTROLES GLUCO V2")
+    print("Version 0.5 Stable")
     print("=" * 50)
     print()
 
@@ -107,17 +112,11 @@ def main():
         df_090
     )
 
-    df = validar_cesiones(df)
-
-    # --------------------------------------------------
-    # DETERMINAR BENEFICIARIO
-    # --------------------------------------------------
-
     df = determinar_beneficiario(df)
 
-    # --------------------------------------------------
-    # CLASIFICACION
-    # --------------------------------------------------
+    df = validar_cesiones(df)
+
+    df = calcular_resultado_final(df)
 
     parciales, finales, comisiones, ajustes = (
         clasificar_documentos(df)
@@ -138,28 +137,12 @@ def main():
     print(f"Comisiones       : {len(comisiones)}")
     print(f"Ajustes          : {len(ajustes)}")
 
-    clasificados = (
-        len(parciales)
-        + len(finales)
-        + len(comisiones)
-        + len(ajustes)
-    )
-
-    print(f"Ya controlados  : "f"{eliminados}"
-    )
-
-    print(
-        f"A revisar       : "
-        f"{df['REVISAR'].sum()}"
-    )
-
-    print(
-    f"Ya pagados      : "
-    f"{df['YA_PAGADO'].sum()}"
-    )
+    print(f"Ya controlados   : {eliminados}")
+    print(f"A revisar        : {df['REVISAR'].sum()}")
+    print(f"Ya pagados       : {df['YA_PAGADO'].sum()}")
 
     # --------------------------------------------------
-    # CONTRATOS SIN MATCH EN 090
+    # VALIDACION 090
     # --------------------------------------------------
 
     contratos_sin_match = (
@@ -178,6 +161,10 @@ def main():
         f"{contratos_sin_match}"
     )
 
+    # --------------------------------------------------
+    # BENEFICIARIOS
+    # --------------------------------------------------
+
     print()
     print("=" * 50)
     print("BENEFICIARIOS")
@@ -192,7 +179,6 @@ def main():
         print(f"{tipo:<12} : {cantidad}")
 
     print()
-
     print("VALIDACION")
 
     resultado = (
@@ -203,23 +189,75 @@ def main():
     for estado, cantidad in resultado.items():
         print(f"{estado:<20} : {cantidad}")
 
-        print()
-        print("=" * 50)
-        print("CESIONES")
-        print("=" * 50)
+    # --------------------------------------------------
+    # CESIONES
+    # --------------------------------------------------
 
-        conteo = (
-            df["RESULTADO_CESION"]
-            .value_counts(dropna=False)
-        )
+    print()
+    print("=" * 50)
+    print("CESIONES")
+    print("=" * 50)
 
-        for resultado, cantidad in conteo.items():
-            print(f"{resultado:<30} : {cantidad}")
+    conteo_cesiones = (
+        df["RESULTADO_CESION"]
+        .value_counts(dropna=False)
+    )
 
-        print()
-        print("=" * 50)
-        print("PROCESO FINALIZADO")
-        print("=" * 50)
+    for resultado, cantidad in conteo_cesiones.items():
+        print(f"{resultado:<30} : {cantidad}")
+
+    # --------------------------------------------------
+    # RESULTADO FINAL
+    # --------------------------------------------------
+
+    print()
+    print("=" * 50)
+    print("RESULTADO FINAL")
+    print("=" * 50)
+
+    resultado_final = (
+        df["RESULTADO_FINAL"]
+        .value_counts(dropna=False)
+    )
+
+    for estado, cantidad in resultado_final.items():
+        print(f"{estado:<20} : {cantidad}")
+
+    manuales = df[
+        df["RESULTADO_FINAL"]
+        == "CONTROL MANUAL"
+    ]
+
+    print()
+    print(
+        f"Documentos a revisar : "
+        f"{len(manuales)}"
+    )
+
+    # --------------------------------------------------
+    # MOTIVOS
+    # --------------------------------------------------
+
+    print()
+
+    exportar_resultado(
+        df,
+        parciales,
+        finales,
+        comisiones,
+        ajustes
+    )
+
+    print()
+    print("=" * 50)
+    print("EXPORTACION")
+    print("=" * 50)
+    print("Archivo generado: resultado_gluco_v2.xlsx")
+
+    print()
+    print("=" * 50)
+    print("PROCESO FINALIZADO")
+    print("=" * 50)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,66 @@ def convertir_booleanos(df):
     return df
 
 
+def preparar_exportacion(df):
+
+    columnas_principales = [
+        "Numero Doc",
+        "Tipo Doc",
+        "Contrato",
+        "Vendedor",
+        "Corredor",
+        "Numero de CAE COE Factura",
+        "Numero documento fiscal",
+        "id_corto",
+        "id_largo",
+        "TIPO_BENEFICIARIO",
+        "RESULTADO_BENEFICIARIO",
+        "RESULTADO_CESION",
+        "REVISAR",
+        "YA_PAGADO",
+        "CUIT_VENDEDOR_090",
+        "CUIT_CORREDOR_090",
+        "UNIDADES_ORIGINALES_090",
+        "RESULTADO_FINAL",
+        "MOTIVO CONTROL"
+    ]
+
+    columnas_existentes = [
+        c
+        for c in columnas_principales
+        if c in df.columns
+    ]
+
+    return df[columnas_existentes].copy()
+
+
+def ajustar_columnas(writer, sheet_name, df):
+
+    worksheet = writer.sheets[sheet_name]
+
+    for idx, col in enumerate(df.columns):
+
+        try:
+
+            largo = max(
+                len(str(col)),
+                df[col]
+                .astype(str)
+                .str.len()
+                .max()
+            )
+
+        except Exception:
+
+            largo = 20
+
+        worksheet.set_column(
+            idx,
+            idx,
+            min(largo + 3, 40)
+        )
+
+
 def exportar_resultado(
     df,
     parciales,
@@ -47,36 +107,58 @@ def exportar_resultado(
 
     df = convertir_booleanos(df)
 
+    resultado_export = preparar_exportacion(df)
+
+    parciales_export = preparar_exportacion(parciales)
+
+    finales_export = preparar_exportacion(finales)
+
+    comisiones_export = preparar_exportacion(comisiones)
+
+    ajustes_export = preparar_exportacion(ajustes)
+
+    sin_match = preparar_exportacion(
+        df[
+            df["UNIDADES_ORIGINALES_090"].isna()
+        ]
+    )
+
+    ya_pagados = preparar_exportacion(
+        df[
+            df["YA_PAGADO"] == "SI"
+        ]
+    )
+
+    revisar = preparar_exportacion(
+        df[
+            df["REVISAR"] == "SI"
+        ]
+    )
+
     resumen = pd.DataFrame(
         {
             "Concepto": [
-                "Total",
+                "Total Documentos",
                 "Parciales",
                 "Finales",
                 "Comisiones",
-                "Ajustes"
+                "Ajustes",
+                "Ya Pagados",
+                "A Revisar",
+                "Sin Match 090"
             ],
             "Cantidad": [
                 len(df),
                 len(parciales),
                 len(finales),
                 len(comisiones),
-                len(ajustes)
+                len(ajustes),
+                len(ya_pagados),
+                len(revisar),
+                len(sin_match)
             ]
         }
     )
-
-    sin_match = df[
-        df["UNIDADES_ORIGINALES_090"].isna()
-    ]
-
-    ya_pagados = df[
-        df["YA_PAGADO"] == "SI"
-    ]
-
-    revisar = df[
-        df["REVISAR"] == "SI"
-    ]
 
     with pd.ExcelWriter(
         archivo_salida,
@@ -89,79 +171,7 @@ def exportar_resultado(
             index=False
         )
 
-        df.to_excel(
+        resultado_export.to_excel(
             writer,
             sheet_name="Resultado",
-            index=False
-        )
-
-        parciales.to_excel(
-            writer,
-            sheet_name="Parciales",
-            index=False
-        )
-
-        finales.to_excel(
-            writer,
-            sheet_name="Finales",
-            index=False
-        )
-
-        comisiones.to_excel(
-            writer,
-            sheet_name="Comisiones",
-            index=False
-        )
-
-        ajustes.to_excel(
-            writer,
-            sheet_name="Ajustes",
-            index=False
-        )
-
-        sin_match.to_excel(
-            writer,
-            sheet_name="Sin Match 090",
-            index=False
-        )
-
-        ya_pagados.to_excel(
-            writer,
-            sheet_name="Ya Pagados",
-            index=False
-        )
-
-        revisar.to_excel(
-            writer,
-            sheet_name="Revisar",
-            index=False
-        )
-
-        workbook = writer.book
-
-        formato_header = workbook.add_format(
-            {
-                "bold": True,
-                "bg_color": "#D9EAD3",
-                "border": 1
-            }
-        )
-
-        for sheet in writer.sheets.values():
-
-            sheet.autofilter(
-                0,
-                0,
-                10000,
-                100
-            )
-
-    print()
-    print("=" * 50)
-    print("EXPORTACION")
-    print("=" * 50)
-    print(
-        f"Archivo generado: {archivo_salida}"
-    )
-
-    return archivo_salida
+            index=False)
