@@ -99,4 +99,19 @@ def calcular_resultado_final(df):
             "MOTIVO_CONTROL"
         ] = "SIN MATCH 090"
 
+    mask_fecha = (
+        df["RESULTADO_FECHA"]
+        != "OK"
+    )
+
+    df.loc[
+        mask_fecha,
+        "RESULTADO_FINAL"
+    ] = "CONTROL MANUAL"
+
+    df.loc[
+        mask_fecha,
+        "MOTIVO_CONTROL"
+    ] = "ERROR FECHA"
+
     return df

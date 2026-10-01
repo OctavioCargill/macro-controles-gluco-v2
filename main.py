@@ -6,12 +6,15 @@ warnings.filterwarnings(
     module="openpyxl"
 )
 
-from processors.resultado_final import (
-    calcular_resultado_final
+from processors.fechas_pago import (
+    asignar_dias_pago,
+    calcular_fecha_pago,
+    calcular_fecha_final,
+    validar_fecha_pago
 )
 
-from processors.fechas_pago import (
-    asignar_dias_pago
+from processors.resultado_final import (
+    calcular_resultado_final
 )
 
 from processors.beneficiarios import (
@@ -117,6 +120,12 @@ def main():
     )
     
     df = asignar_dias_pago(df)
+
+    df = calcular_fecha_pago(df)
+
+    df = calcular_fecha_final(df)
+
+    df = validar_fecha_pago(df)
 
     df = determinar_beneficiario(df)
 
@@ -253,41 +262,39 @@ def main():
         comisiones,
         ajustes
     )
-
+    
     print()
     print("=" * 50)
-    print("FECHAS DE PAGO")
+    print("FECHAS")
     print("=" * 50)
 
     print(
         df[
             [
                 "Condicion de Pago",
-                "Fecha Pago"
+                "DIAS_PAGO",
+                "Fecha Generacion Liquidacion",
+                "FECHA_CALCULADA",
+                "Fecha cierta de pago",
+                "FECHA_FINAL"
             ]
         ]
-        .drop_duplicates()
-        .sort_values("Condicion de Pago")
+        .head(10)
     )
 
     print()
-    print("=" * 50)
-    print("ANALISIS FECHAS")
-    print("=" * 50)
+    print("VALIDACION FECHAS")
 
-    print()
-    print("=" * 50)
-    print("CONDICIONES DE PAGO")
-    print("=" * 50)
-
-    conteo = (
-        df["RESULTADO_CONDICION"]
+    conteo_fechas = (
+        df["RESULTADO_FECHA"]
         .value_counts(dropna=False)
     )
 
-    for estado, cantidad in conteo.items():
-        print(f"{estado:<20} : {cantidad}")
-        
+    for resultado, cantidad in conteo_fechas.items():
+        print(
+            f"{resultado:<25} : {cantidad}"
+        )
+
     print()
     print("=" * 50)
     print("EXPORTACION")

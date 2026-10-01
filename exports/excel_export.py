@@ -47,7 +47,11 @@ def preparar_exportacion(df):
         "CUIT_CORREDOR_090",
         "UNIDADES_ORIGINALES_090",
         "RESULTADO_FINAL",
-        "MOTIVO CONTROL"
+        "MOTIVO CONTROL",
+        "DIAS_PAGO",
+        "FECHA_CALCULADA",
+        "FECHA_FINAL",
+        "RESULTADO_FECHA"
     ]
 
     columnas_existentes = [
