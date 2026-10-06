@@ -1,24 +1,45 @@
 def calcular_resultado_final(df):
 
+    # Estado por defecto
     df["RESULTADO_FINAL"] = "CONTROL MACRO"
-
     df["MOTIVO_CONTROL"] = ""
 
     # -------------------------
-    # REVISAR
+    # SIN MATCH 090
     # -------------------------
 
-    mask_revisar = (
+    if "CONTRATO_ENCONTRADO_090" in df.columns:
+
+        mask = (
+            df["CONTRATO_ENCONTRADO_090"]
+            == False
+        )
+
+        df.loc[
+            mask,
+            "RESULTADO_FINAL"
+        ] = "CONTROL MANUAL"
+
+        df.loc[
+            mask,
+            "MOTIVO_CONTROL"
+        ] = "SIN MATCH 090"
+
+    # -------------------------
+    # REVISAR HISTORICO
+    # -------------------------
+
+    mask = (
         df["REVISAR"] == True
     )
 
     df.loc[
-        mask_revisar,
+        mask,
         "RESULTADO_FINAL"
     ] = "CONTROL MANUAL"
 
     df.loc[
-        mask_revisar,
+        mask,
         "MOTIVO_CONTROL"
     ] = "REVISAR"
 
@@ -26,17 +47,17 @@ def calcular_resultado_final(df):
     # YA PAGADO
     # -------------------------
 
-    mask_pagado = (
+    mask = (
         df["YA_PAGADO"] == True
     )
 
     df.loc[
-        mask_pagado,
+        mask,
         "RESULTADO_FINAL"
     ] = "CONTROL MANUAL"
 
     df.loc[
-        mask_pagado,
+        mask,
         "MOTIVO_CONTROL"
     ] = "YA PAGADO"
 
@@ -44,74 +65,67 @@ def calcular_resultado_final(df):
     # BENEFICIARIO
     # -------------------------
 
-    mask_beneficiario = (
-        df["RESULTADO_BENEFICIARIO"]
-        != "OK"
-    )
+    if "RESULTADO_BENEFICIARIO" in df.columns:
 
-    df.loc[
-        mask_beneficiario,
-        "RESULTADO_FINAL"
-    ] = "CONTROL MANUAL"
+        mask = (
+            df["RESULTADO_BENEFICIARIO"]
+            != "OK"
+        )
 
-    df.loc[
-        mask_beneficiario,
-        "MOTIVO_CONTROL"
-    ] = "ERROR BENEFICIARIO"
+        df.loc[
+            mask,
+            "RESULTADO_FINAL"
+        ] = "CONTROL MANUAL"
+
+        df.loc[
+            mask,
+            "MOTIVO_CONTROL"
+        ] = "ERROR BENEFICIARIO"
 
     # -------------------------
     # CESION
     # -------------------------
 
-    mask_cesion = (
-        df["RESULTADO_CESION"]
-        != "OK"
-    )
+    if "RESULTADO_CESION" in df.columns:
 
-    df.loc[
-        mask_cesion,
-        "RESULTADO_FINAL"
-    ] = "CONTROL MANUAL"
-
-    df.loc[
-        mask_cesion,
-        "MOTIVO_CONTROL"
-    ] = "ERROR CESION"
-    
-    # -------------------------
-    # MATCH 090
-    # -------------------------
-
-    if "CONTRATO_ENCONTRADO_090" in df.columns:
-
-        mask_match = (
-            df["CONTRATO_ENCONTRADO_090"]
-            == False
+        mask = (
+            df["RESULTADO_CESION"]
+            != "OK"
         )
 
         df.loc[
-            mask_match,
+            mask,
             "RESULTADO_FINAL"
         ] = "CONTROL MANUAL"
 
         df.loc[
-            mask_match,
+            mask,
             "MOTIVO_CONTROL"
-        ] = "SIN MATCH 090"
+        ] = "ERROR CESION"
 
-    mask_fecha = (
-        df["RESULTADO_FECHA"]
-        != "OK"
-    )
-
-    df.loc[
-        mask_fecha,
-        "RESULTADO_FINAL"
-    ] = "CONTROL MANUAL"
-
-    df.loc[
-        mask_fecha,
-        "MOTIVO_CONTROL"
-    ] = "ERROR FECHA"
+    # -------------------------
+    # FECHAS
+    # -------------------------
+    #
+    # NO ACTIVAR TODAVIA
+    #
+    # Cuando validemos que la lógica
+    # de fechas coincide con VBA
+    # descomentamos este bloque.
+    #
+    # mask = (
+    #     df["RESULTADO_FECHA"]
+    #     != "OK"
+    # )
+    #
+    # df.loc[
+    #     mask,
+    #     "RESULTADO_FINAL"
+    # ] = "CONTROL MANUAL"
+    #
+    # df.loc[
+    #     mask,
+    #     "MOTIVO_CONTROL"
+    # ] = "ERROR FECHA"
 
     return df

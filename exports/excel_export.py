@@ -51,7 +51,7 @@ def preparar_exportacion(df):
         "DIAS_PAGO",
         "FECHA_CALCULADA",
         "FECHA_FINAL",
-        "RESULTADO_FECHA"
+        "RESULTADO_FECHA",
     ]
 
     columnas_existentes = [
@@ -89,6 +89,32 @@ def ajustar_columnas(writer, sheet_name, df):
             min(largo + 3, 40)
         )
 
+
+def crear_control_powerapp(df):
+
+    columnas = [
+        "Numero Doc",
+        "Tipo Doc",
+        "Contrato",
+        "Producto",
+        "Cosecha",
+        "AB Beneficiario del Pago",
+        "Fecha Pago",
+        "Total a Pagar",
+        "Imponible",
+        "Importe Fiscal",
+        "Valor Comprobante",
+        "RESULTADO_FINAL",
+        "MOTIVO_CONTROL"
+    ]
+
+    columnas = [
+        c
+        for c in columnas
+        if c in df.columns
+    ]
+
+    return df[columnas].copy()
 
 def exportar_resultado(
     df,
@@ -164,11 +190,29 @@ def exportar_resultado(
         }
     )
 
+    a_controlar = crear_a_controlar(df)
+    
+    control_powerapp = (
+        crear_control_powerapp(df)
+    )
+    
     with pd.ExcelWriter(
         archivo_salida,
         engine="xlsxwriter"
     ) as writer:
 
+        control_powerapp.to_excel(
+            writer,
+            sheet_name="CONTROL_POWERAPP",
+            index=False
+        )
+        
+        a_controlar.to_excel(
+            writer,
+            sheet_name="A_CONTROLAR",
+            index=False
+        )
+        
         resumen.to_excel(
             writer,
             sheet_name="Resumen",
@@ -179,3 +223,30 @@ def exportar_resultado(
             writer,
             sheet_name="Resultado",
             index=False)
+
+def crear_a_controlar(df):
+
+    columnas = [
+        "Numero Doc",
+        "Tipo Doc",
+        "Contrato",
+        "Producto",
+        "Cosecha",
+        "Vendedor",
+        "Corredor",
+        "AB Beneficiario del Pago",
+        "Fecha Pago",
+        "Total a Pagar",
+        "Importe Fiscal",
+        "Valor Comprobante",
+        "RESULTADO_FINAL",
+        "MOTIVO_CONTROL"
+    ]
+
+    columnas = [
+        c
+        for c in columnas
+        if c in df.columns
+    ]
+
+    return df[columnas].copy()

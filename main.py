@@ -1,4 +1,5 @@
 import warnings
+from datetime import date
 
 warnings.filterwarnings(
     "ignore",
@@ -11,6 +12,10 @@ from processors.fechas_pago import (
     calcular_fecha_pago,
     calcular_fecha_final,
     validar_fecha_pago
+)
+
+from utils.fecha_control import (
+    obtener_fecha_control
 )
 
 from processors.resultado_final import (
@@ -235,6 +240,21 @@ def main():
         .value_counts(dropna=False)
     )
 
+    print()
+    print("=" * 50)
+    print("VALIDACION FECHAS")
+    print("=" * 50)
+    
+    conteo_fechas = (
+        df["RESULTADO_FECHA"]
+        .value_counts(dropna=False)
+    )
+    
+    for resultado, cantidad in conteo_fechas.items():
+        print(
+            f"{resultado:<25} : {cantidad}"
+        )
+
     for estado, cantidad in resultado_final.items():
         print(f"{estado:<20} : {cantidad}")
 
@@ -249,12 +269,105 @@ def main():
         f"{len(manuales)}"
     )
 
-    # --------------------------------------------------
-    # MOTIVOS
-    # --------------------------------------------------
+    print()
+    print("MOTIVOS")
+    
+    motivos = (
+        df["MOTIVO_CONTROL"]
+        .replace("", "CONTROL MACRO")
+        .value_counts()
+    )
+    
+    for motivo, cantidad in motivos.items():
+    
+        print(
+            f"{motivo:<25} : {cantidad}"
+    )
+
+    # ==================================================
+    # CONTROL POWERAPP
+    # ==================================================
 
     print()
+    print("=" * 80)
+    print("CONTROL POWERAPP")
+    print("=" * 80)
 
+    control_powerapp = (
+        df[
+            df["RESULTADO_FINAL"] == "CONTROL MACRO"
+        ]
+        .copy()
+    )
+
+    # Una sola fila por liquidación
+    control_powerapp = (
+        control_powerapp
+        .sort_values(
+            [
+                "Numero Doc",
+                "Fecha Pago"
+            ]
+        )
+        .drop_duplicates(
+            subset=["Numero Doc"],
+            keep="first"
+        )
+    )
+
+    # Ordenar para lectura
+    control_powerapp = (
+        control_powerapp
+        .sort_values(
+            [
+                "Fecha Pago",
+                "Numero Doc"
+            ]
+        )
+    )
+
+    columnas = [
+        "Numero Doc",
+        "Tipo Doc",
+        "Contrato",
+        "Fecha Pago",
+        "FECHA_FINAL",
+        "AB Beneficiario del Pago",
+        "Total a Pagar"
+    ]
+
+    columnas = [
+        c
+        for c in columnas
+        if c in control_powerapp.columns
+    ]
+
+    print(
+        control_powerapp[
+            columnas
+        ].to_string(index=False)
+    )
+
+    print()
+    print(
+        f"Liquidaciones únicas : "
+        f"{len(control_powerapp)}"
+    )
+
+    print()
+    print("Distribucion por Fecha Pago")
+    print("-" * 40)
+
+    print(
+        control_powerapp["Fecha Pago"]
+        .value_counts()
+        .sort_index()
+    )
+
+    # --------------------------------------------------
+    # EXPORTACION
+    # --------------------------------------------------
+    
     exportar_resultado(
         df,
         parciales,
@@ -262,39 +375,7 @@ def main():
         comisiones,
         ajustes
     )
-    
-    print()
-    print("=" * 50)
-    print("FECHAS")
-    print("=" * 50)
-
-    print(
-        df[
-            [
-                "Condicion de Pago",
-                "DIAS_PAGO",
-                "Fecha Generacion Liquidacion",
-                "FECHA_CALCULADA",
-                "Fecha cierta de pago",
-                "FECHA_FINAL"
-            ]
-        ]
-        .head(10)
-    )
-
-    print()
-    print("VALIDACION FECHAS")
-
-    conteo_fechas = (
-        df["RESULTADO_FECHA"]
-        .value_counts(dropna=False)
-    )
-
-    for resultado, cantidad in conteo_fechas.items():
-        print(
-            f"{resultado:<25} : {cantidad}"
-        )
-
+            
     print()
     print("=" * 50)
     print("EXPORTACION")
