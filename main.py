@@ -1,10 +1,16 @@
 import warnings
 from datetime import date
 
+import pandas as pd
+
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     module="openpyxl"
+)
+
+from processors.control_powerapp import (
+    construir_control_powerapp
 )
 
 from processors.fechas_pago import (
@@ -61,6 +67,56 @@ from processors.cruce_090 import (
     enriquecer_con_090
 )
 
+
+def obtener_retenciones(grupo):
+
+    conceptos = []
+
+    for _, fila in grupo.iterrows():
+
+        producto = str(
+            fila["Producto"]
+        )
+
+        importe = fila[
+            "Importe Fiscal"
+        ]
+
+        if "RIB" in producto:
+
+            conceptos.append(
+                f"{producto}: {importe:,.2f}"
+            )
+
+    if not conceptos:
+        return "N/A"
+
+    return " | ".join(conceptos)
+
+def obtener_percepciones(grupo):
+
+    conceptos = []
+
+    for _, fila in grupo.iterrows():
+
+        producto = str(
+            fila["Producto"]
+        )
+
+        importe = fila[
+            "Importe Fiscal"
+        ]
+
+        if "PIB" in producto:
+
+            conceptos.append(
+                f"{producto}: {importe:,.2f}"
+            )
+
+    if not conceptos:
+        return "N/A"
+
+    return " | ".join(conceptos)
 
 def main():
 
@@ -295,74 +351,101 @@ def main():
 
     control_powerapp = (
         df[
-            df["RESULTADO_FINAL"] == "CONTROL MACRO"
+            (df["RESULTADO_FINAL"] == "CONTROL MACRO")
+            &
+            (df["Estatus Documento"] == "A")
         ]
         .copy()
     )
 
-    # Una sola fila por liquidación
-    control_powerapp = (
-        control_powerapp
-        .sort_values(
-            [
-                "Numero Doc",
-                "Fecha Pago"
-            ]
+    filas = []
+
+    for numero_doc, grupo in (
+        control_powerapp.groupby(
+            "Numero Doc"
         )
-        .drop_duplicates(
-            subset=["Numero Doc"],
-            keep="first"
-        )
+    ):
+
+        fila = {
+
+            "Numero Doc":
+                numero_doc,
+
+            "Tipo Doc":
+                grupo["Tipo Doc"]
+                .iloc[0],
+
+            "Contrato":
+                grupo["Contrato"]
+                .iloc[0],
+
+            "Fecha Pago":
+                grupo["Fecha Pago"]
+                .iloc[0],
+
+            "AB Beneficiario del Pago":
+                grupo[
+                    "AB Beneficiario del Pago"
+                ].iloc[0],
+
+            "Total a Pagar":
+                grupo[
+                    "Total a Pagar"
+                ].iloc[0],
+
+            "RETENCIONES_IIBB":
+                obtener_retenciones(
+                    grupo
+                ),
+
+            "PERCEPCIONES_IIBB":
+                obtener_percepciones(
+                    grupo
+                )
+        }
+
+        filas.append(fila)
+
+    control_powerapp = pd.DataFrame(
+        filas
     )
-
-    # Ordenar para lectura
-    control_powerapp = (
-        control_powerapp
-        .sort_values(
-            [
-                "Fecha Pago",
-                "Numero Doc"
-            ]
-        )
-    )
-
-    columnas = [
-        "Numero Doc",
-        "Tipo Doc",
-        "Contrato",
-        "Fecha Pago",
-        "FECHA_FINAL",
-        "AB Beneficiario del Pago",
-        "Total a Pagar"
-    ]
-
-    columnas = [
-        c
-        for c in columnas
-        if c in control_powerapp.columns
-    ]
 
     print(
-        control_powerapp[
-            columnas
-        ].to_string(index=False)
+        control_powerapp.to_string(
+            index=False
+        )
     )
 
     print()
+
     print(
         f"Liquidaciones únicas : "
         f"{len(control_powerapp)}"
     )
 
-    print()
-    print("Distribucion por Fecha Pago")
-    print("-" * 40)
+    # ==================================================
+    # FECHAS DISPONIBLES - CONTROL
+    # ==================================================
 
-    print(
+    print()
+    print("=" * 80)
+    print("FECHAS DISPONIBLES PARA CONTROL")
+    print("=" * 80)
+
+    fechas = (
         control_powerapp["Fecha Pago"]
+        .dropna()
+        .sort_values()
+        .dt.date
         .value_counts()
         .sort_index()
     )
+
+    for fecha, cantidad in fechas.items():
+
+        print(
+            f"{fecha} : {cantidad} documentos"
+        )
 
     # --------------------------------------------------
     # EXPORTACION
