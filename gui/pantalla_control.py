@@ -300,6 +300,9 @@ class PantallaControl(ctk.CTkFrame):
         mask = self.df_original["Numero Doc"].astype(str) == str(numero_doc)
         self.df_original.loc[mask, "CONTROLADO"] = ~self.df_original.loc[mask, "CONTROLADO"].fillna(False).astype(bool)
 
+        if hasattr(self.master, "df_procesado"):
+            self.master.df_procesado = self.df_original.copy()
+
         fecha_actual = self.combo_fecha.get()
         tipo_actual = self.combo_tipo.get()
         self.aplicar_filtros(fecha_actual, tipo_actual)
@@ -459,8 +462,14 @@ class PantallaControl(ctk.CTkFrame):
                 wraplength=440
             ).grid(row=1, column=0, sticky="w", padx=14, pady=(4, 12))
 
+        texto_producto = (
+            detalle.get("Producto", pd.Series("", index=detalle.index)).fillna("").astype(str)
+            + " "
+            + detalle.get("Descripcion de Producto", pd.Series("", index=detalle.index)).fillna("").astype(str)
+        )
+
         retenciones = detalle.loc[
-            detalle.get("Producto", pd.Series(dtype=str)).astype(str).str.contains("RIB", case=False, na=False)
+            texto_producto.str.contains(r"RIB|IIBB|IBB|SAN LUIS", case=False, na=False)
         ].copy()
 
         retenciones_panel = ctk.CTkFrame(contenido, fg_color="#111827", corner_radius=10, border_width=1, border_color="#334155")
@@ -496,7 +505,7 @@ class PantallaControl(ctk.CTkFrame):
                 tabla_ret.insert("", "end", values=(producto, descripcion, importe))
 
         percepciones = detalle.loc[
-            detalle.get("Producto", pd.Series(dtype=str)).astype(str).str.contains("PIB", case=False, na=False)
+            texto_producto.str.contains(r"PIB|IVA", case=False, na=False)
         ].copy()
 
         percepciones_panel = ctk.CTkFrame(contenido, fg_color="#111827", corner_radius=10, border_width=1, border_color="#334155")

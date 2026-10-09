@@ -1,5 +1,9 @@
-import customtkinter as ctk
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
 from tkinter import filedialog
+
+import customtkinter as ctk
 import pandas as pd
 
 from .pantalla_control import PantallaControl
@@ -239,7 +243,6 @@ class PantallaLimpieza(ctk.CTkFrame):
         )
         self.frame_tabla.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
-        columnas = ("Numero Doc", "Contrato", "Fecha Pago", "Beneficiario", "Estado")
         self.tabla = ctk.CTkTextbox(self.frame_tabla, height=16)
         self.tabla.pack(fill="both", expand=True, padx=12, pady=12)
 
@@ -250,7 +253,7 @@ class PantallaLimpieza(ctk.CTkFrame):
 
         btn_eliminar = ctk.CTkButton(
             acciones,
-            text="ELIMINAR SELECCIONADOS",
+            text="Limpiar controlados",
             command=self.eliminar_seleccionados,
             width=250,
             height=46,
@@ -272,6 +275,65 @@ class PantallaLimpieza(ctk.CTkFrame):
         )
         btn_volver.pack(side="left")
 
+    def _ruta_historico(self):
+        return Path(__file__).resolve().parents[1] / "data" / "Historico_Documentos_Controlados.xlsb"
+
+    def _guardar_historico_controlados(self, df_controlados):
+        if df_controlados is None or df_controlados.empty:
+            return
+
+        ruta = self._ruta_historico()
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+
+        df_hist = df_controlados.copy()
+        df_hist["Fecha_Limpieza"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        df_hist["Estado_Limpieza"] = "CONTROLADO_LIMPIADO"
+
+        try:
+            import win32com.client
+
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+
+            if ruta.exists():
+                libro = excel.Workbooks.Open(str(ruta))
+            else:
+                libro = excel.Workbooks.Add()
+
+            hoja = None
+            for nombre in ["Historico_Documentos_Controlados", "Historico", "Sheet1"]:
+                try:
+                    hoja = libro.Worksheets(nombre)
+                    break
+                except Exception as exc:  # pragma: no cover - fallback de compatibilidad
+                    logging.getLogger(__name__).debug("Hoja no disponible en historial: %s", exc)
+                    continue
+
+            if hoja is None:
+                hoja = libro.Worksheets.Add()
+                hoja.Name = "Historico_Documentos_Controlados"
+
+            if hoja.Cells(1, 1).Value is None:
+                columnas = list(df_hist.columns)
+                for idx, nombre_col in enumerate(columnas, start=1):
+                    hoja.Cells(1, idx).Value = nombre_col
+                fila_inicio = 2
+            else:
+                fila_inicio = hoja.UsedRange.Rows.Count + 1
+
+            for fila_idx, fila in enumerate(df_hist.itertuples(index=False), start=fila_inicio):
+                for col_idx, valor in enumerate(fila, start=1):
+                    hoja.Cells(fila_idx, col_idx).Value = valor
+
+            libro.SaveAs(str(ruta), 50)
+            libro.Close(SaveChanges=True)
+            excel.Quit()
+
+        except Exception as exc:  # pragma: no cover - fallback local si Excel no está disponible
+            logging.getLogger(__name__).warning("No se pudo escribir en XLSB; se usa fallback local: %s", exc)
+            df_hist.to_excel(ruta.with_suffix(".xlsx"), index=False)
+
     def cargar_documentos(self, df):
         if df is None or df.empty:
             self.df_original = pd.DataFrame()
@@ -283,6 +345,9 @@ class PantallaLimpieza(ctk.CTkFrame):
         if "CONTROLADO" not in self.df_original.columns:
             self.df_original["CONTROLADO"] = False
         self.df_original["CONTROLADO"] = self.df_original["CONTROLADO"].fillna(False).astype(bool)
+
+        if hasattr(self.master, "df_procesado") and self.master.df_procesado is not None:
+            self.master.df_procesado = self.df_original.copy()
 
         controlados = self.df_original[self.df_original["CONTROLADO"] == True].copy()
 
@@ -308,8 +373,23 @@ class PantallaLimpieza(ctk.CTkFrame):
         if self.df_original.empty:
             return
 
-        self.df_original["CONTROLADO"] = False
-        self.master.df_procesado = self.df_original.copy()
+        controlados = self.df_original[self.df_original["CONTROLADO"].fillna(False).astype(bool)].copy()
+        if controlados.empty:
+            return
+
+        self._guardar_historico_controlados(controlados)
+
+        self.df_original = self.df_original[
+            ~self.df_original["CONTROLADO"].fillna(False).astype(bool)
+        ].copy()
+
+        if hasattr(self.master, "df_procesado"):
+            self.master.df_procesado = self.df_original.copy()
+
+        if hasattr(self.master, "frames") and "visualizacion" in self.master.frames:
+            self.master.frames["visualizacion"].df_original = self.df_original.copy()
+            self.master.frames["visualizacion"].cargar_dataframe(self.df_original)
+
         self.cargar_documentos(self.df_original)
 
     def volver_al_menu(self):
