@@ -131,4 +131,28 @@ def ejecutar_control(
             ).sum()
     }
 
-    return resumen
+    print(df.columns.tolist())
+    print(
+        df[
+            [
+                "Numero Doc",
+                "Tipo Doc"
+            ]
+        ].head()
+    )
+        
+    return {
+        "resumen": resumen,
+        "df": df
+    }
+
+    print(
+        df[
+            [
+                "Numero Doc",
+                "Producto",
+                "Importe Fiscal"
+            ]
+        ]
+        .head(30)
+    )
