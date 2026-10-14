@@ -25,6 +25,4 @@ def cargar_090(ruta_archivo: str) -> pd.DataFrame:
 
     df = df.reset_index(drop=True)
 
-    print(f"090 cargado: {len(df)} registros")
-
     return df

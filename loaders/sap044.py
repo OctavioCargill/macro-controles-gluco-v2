@@ -26,6 +26,4 @@ def cargar_044(ruta_archivo: str) -> pd.DataFrame:
     # Reiniciar índice
     df = df.reset_index(drop=True)
 
-    print(f"044 cargado: {len(df)} registros")
-
     return df

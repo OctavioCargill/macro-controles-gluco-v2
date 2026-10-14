@@ -1,0 +1,8 @@
+# Runtime dependencies
+pandas>=2.0
+customtkinter>=5.2
+openpyxl>=3.1
+
+# Optional, only needed when Excel COM is desired on Windows.
+# The application should work without this package by using the local fallback exporter.
+pywin32>=306; platform_system == "Windows"

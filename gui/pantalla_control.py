@@ -1,8 +1,14 @@
 import logging
+import re
 from tkinter import ttk
 
 import customtkinter as ctk
 import pandas as pd
+
+from processors.clasificador import (
+    es_liquidacion_final,
+    es_liquidacion_parcial
+)
 
 
 class Tarjeta(ctk.CTkFrame):
@@ -112,6 +118,16 @@ class PantallaControl(ctk.CTkFrame):
             border_color="#334155"
         )
         self.frame_filtros.pack(fill="x", pady=(0, 12))
+
+        self.lbl_estado = ctk.CTkLabel(
+            self.frame_filtros,
+            text="",
+            font=("Segoe UI", 12, "bold"),
+            text_color="#86efac",
+            anchor="w",
+            justify="left"
+        )
+        self.lbl_estado.grid(row=1, column=0, columnspan=4, padx=(18, 18), pady=(0, 12), sticky="w")
 
         self.frame_filtros.grid_columnconfigure(0, weight=0)
         self.frame_filtros.grid_columnconfigure(1, weight=0)
@@ -233,10 +249,11 @@ class PantallaControl(ctk.CTkFrame):
         self.lbl_estado = ctk.CTkLabel(
             self,
             text="",
-            font=("Segoe UI", 11, "bold"),
-            text_color="#86efac"
+            font=("Segoe UI", 12, "bold"),
+            text_color="#86efac",
+            anchor="w",
+            justify="left"
         )
-        self.lbl_estado.pack(pady=(0, 6))
 
     def _aplicar_estilo_tabla(self):
 
@@ -273,7 +290,19 @@ class PantallaControl(ctk.CTkFrame):
 
     def mostrar_estado(self, mensaje, color="#86efac"):
 
-        self.lbl_estado.configure(text=mensaje, text_color=color)
+        palette = {
+            "#86efac": "#052e16",
+            "#93c5fd": "#172554",
+            "#fca5a5": "#450a0a",
+            "#fbbf24": "#451a03",
+        }
+
+        self.lbl_estado.configure(
+            text=mensaje,
+            text_color=color,
+            fg_color=palette.get(color, "#0f172a"),
+            corner_radius=10
+        )
         self.lbl_estado.update_idletasks()
 
     def _formatear_numero(self, valor):
@@ -410,6 +439,7 @@ class PantallaControl(ctk.CTkFrame):
         tipo_vendedor = obtener_valor(primer_fila, ["Tipo de Vendedor", "Descripcion de vendedor", "Tipo Vendedor"], "-")
         fecha_pago_efectiva = obtener_valor(primer_fila, ["Fecha Pago", "Fecha de Pago Efectiva"], "-")
         nro_doc_interno = obtener_valor(primer_fila, ["Numero Doc", "Nro. Doc. Interno"], "-")
+        nro_legal = obtener_valor(primer_fila, ["Nro_Legal", "Nro. Legal", "Numero documento fiscal", "Numero de CAE COE Factura", "COE"], "-")
         estado_liq = obtener_valor(primer_fila, ["Estatus Documento", "Estado Liq.", "Estado de liquidacion"], "-")
         id_solicitado = obtener_valor(primer_fila, ["id_largo", "ID solicitado", "Id solicitado"], "-")
 
@@ -419,6 +449,7 @@ class PantallaControl(ctk.CTkFrame):
             ("Conforme:", conforme),
             ("Tipo Documento:", tipo_doc),
             ("Nro. Doc. Interno:", nro_doc_interno),
+            ("Nro. Legal (COE):", nro_legal),
             ("Estado Liq.:", estado_liq),
             ("Obs. de Pago:", obs_pago),
             ("Forma de Pago:", forma_pago),
@@ -462,83 +493,196 @@ class PantallaControl(ctk.CTkFrame):
                 wraplength=440
             ).grid(row=1, column=0, sticky="w", padx=14, pady=(4, 12))
 
-        texto_producto = (
-            detalle.get("Producto", pd.Series("", index=detalle.index)).fillna("").astype(str)
-            + " "
-            + detalle.get("Descripcion de Producto", pd.Series("", index=detalle.index)).fillna("").astype(str)
+        def obtener_columna_flexible(fila, columnas):
+            for columna in columnas:
+                if columna in fila.index:
+                    valor = fila.get(columna)
+                    if pd.notna(valor):
+                        return str(valor)
+            return ""
+
+        def limpiar_texto(valor):
+            if pd.isna(valor):
+                return ""
+            texto = str(valor).strip()
+            texto = re.sub(r"\s+", " ", texto)
+            return texto
+
+        def armar_descripcion_tax(fila):
+            producto = limpiar_texto(fila.get("Producto", ""))
+            descripcion = limpiar_texto(
+                fila.get("Descripcion de Producto", fila.get("Descripcion del Producto", ""))
+            )
+            concepto = limpiar_texto(fila.get("Concepto", ""))
+            descripcion_base = " ".join(part for part in [descripcion, concepto] if part)
+
+            if descripcion_base:
+                texto = descripcion_base
+            elif producto:
+                texto = producto
+            else:
+                texto = "Sin descripción disponible"
+
+            if re.search(r"(?i)(AJUA|AJU|RIB|PIB|IIBB|IVA)", producto):
+                if "RIB" in producto.upper() or "IIBB" in producto.upper() or "IBB" in producto.upper():
+                    texto = descripcion_base or concepto or "Retención " + producto
+                elif "PIB" in producto.upper() or "IVA" in producto.upper():
+                    texto = descripcion_base or concepto or "Percepción " + producto
+
+            return texto
+
+        def detectar_tipo_tax(texto):
+            t = texto.upper()
+            if "RIB" in t or "IIBB" in t or "IBB" in t:
+                return "Retención"
+            if "PIB" in t or "IVA" in t:
+                return "Percepción"
+            return "Retención / Percepción"
+
+        def construir_registros_retenciones_percepciones(df):
+            registros = []
+            columnas_base = [
+                "Base Imponible",
+                "Base imponible",
+                "Base de cálculo",
+                "Base de calculo",
+                "Base",
+                "Imponible",
+                "Importe imponible",
+                "Base Imponible Fiscal",
+                "Base cálculos"
+            ]
+            columnas_aliquota = [
+                "Alícuota",
+                "Aliquota",
+                "Alicuota",
+                "Tasa",
+                "Porcentaje",
+                "Aliquota %",
+                "Alícuota %",
+                "Porcentaje de retencion",
+                "Porcentaje de percepcion"
+            ]
+
+            for _, fila in df.iterrows():
+                producto = limpiar_texto(fila.get("Producto", ""))
+                descripcion = limpiar_texto(
+                    fila.get("Descripcion de Producto", fila.get("Descripcion del Producto", ""))
+                )
+                concepto = limpiar_texto(fila.get("Concepto", ""))
+                texto_producto = " ".join(part for part in [producto, descripcion, concepto] if part)
+
+                if not texto_producto:
+                    continue
+
+                hay_retencion = any(patron in texto_producto.upper() for patron in ("RIB", "IIBB", "IBB", "RETENCION"))
+                hay_percepcion = any(patron in texto_producto.upper() for patron in ("PIB", "IVA", "PERCEPCION"))
+
+                if not hay_retencion and not hay_percepcion:
+                    continue
+
+                tipo = "Retención" if hay_retencion else "Percepción"
+                concepto_final = armar_descripcion_tax(fila)
+                base = obtener_columna_flexible(fila, columnas_base)
+                aliquota = obtener_columna_flexible(fila, columnas_aliquota)
+                importe = fila.get("Importe Fiscal")
+                importe_formateado = formatear_importe(importe)
+                codigo = producto or "-"
+
+                registros.append({
+                    "Tipo": tipo,
+                    "Concepto": concepto_final,
+                    "Base de cálculo": base or "-",
+                    "Alícuota (%)": aliquota or "-",
+                    "Importe": importe_formateado,
+                    "Código": codigo,
+                    "_key": (
+                        tipo,
+                        concepto_final,
+                        base,
+                        aliquota,
+                        str(importe),
+                        codigo
+                    )
+                })
+
+            if not registros:
+                return []
+
+            df_registros = pd.DataFrame(registros)
+            df_registros = df_registros.drop_duplicates(subset=["_key"]).copy()
+            return df_registros.drop(columns=["_key"]).to_dict("records")
+
+        registros_tax = construir_registros_retenciones_percepciones(detalle)
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "Retenciones/percepciones detectadas en detalle para Numero Doc %s: %s",
+            numero_doc,
+            registros_tax
         )
 
-        retenciones = detalle.loc[
-            texto_producto.str.contains(r"RIB|IIBB|IBB|SAN LUIS", case=False, na=False)
-        ].copy()
+        retenciones_panel = ctk.CTkFrame(
+            contenido,
+            fg_color="#111827",
+            corner_radius=10,
+            border_width=1,
+            border_color="#334155"
+        )
+        retenciones_panel.grid(row=100, column=0, columnspan=2, sticky="ew", padx=12, pady=(18, 12))
 
-        retenciones_panel = ctk.CTkFrame(contenido, fg_color="#111827", corner_radius=10, border_width=1, border_color="#334155")
-        retenciones_panel.grid(row=100, column=0, columnspan=2, sticky="ew", padx=12, pady=(18, 10))
-        ctk.CTkLabel(retenciones_panel, text="RETENCIONES", font=("Segoe UI", 15, "bold"), text_color="#f8fafc").pack(anchor="w", padx=14, pady=(12, 8))
+        ctk.CTkLabel(
+            retenciones_panel,
+            text="Retenciones y Percepciones",
+            font=("Segoe UI", 15, "bold"),
+            text_color="#f8fafc"
+        ).pack(anchor="w", padx=14, pady=(12, 8))
 
-        if retenciones.empty:
-            ctk.CTkLabel(retenciones_panel, text="No posee retenciones.", text_color="#cbd5e1").pack(anchor="w", padx=14, pady=(0, 12))
-        else:
-            tabla_ret = ttk.Treeview(
+        if not registros_tax:
+            ctk.CTkLabel(
                 retenciones_panel,
-                columns=("Producto", "Descripcion", "Importe Fiscal"),
-                show="headings",
-                height=6,
-                selectmode="browse"
-            )
-            tabla_ret.heading("Producto", text="Producto")
-            tabla_ret.heading("Descripcion", text="Descripcion")
-            tabla_ret.heading("Importe Fiscal", text="Importe Fiscal")
-            tabla_ret.column("Producto", width=180, anchor="center")
-            tabla_ret.column("Descripcion", width=420, anchor="w")
-            tabla_ret.column("Importe Fiscal", width=180, anchor="e")
-            tabla_ret.pack(fill="x", padx=12, pady=(0, 12))
-
-            scroll_ret_y = ttk.Scrollbar(retenciones_panel, orient="vertical", command=tabla_ret.yview)
-            scroll_ret_y.pack(side="right", fill="y", padx=(0, 12), pady=(0, 12))
-            tabla_ret.configure(yscrollcommand=scroll_ret_y.set)
-
-            for _, fila in retenciones.iterrows():
-                producto = str(fila.get("Producto", "-"))
-                descripcion = str(fila.get("Descripcion de Producto", fila.get("Descripcion del Producto", "-")))
-                importe = formatear_importe(fila.get("Importe Fiscal", 0))
-                tabla_ret.insert("", "end", values=(producto, descripcion, importe))
-
-        percepciones = detalle.loc[
-            texto_producto.str.contains(r"PIB|IVA", case=False, na=False)
-        ].copy()
-
-        percepciones_panel = ctk.CTkFrame(contenido, fg_color="#111827", corner_radius=10, border_width=1, border_color="#334155")
-        percepciones_panel.grid(row=101, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
-        ctk.CTkLabel(percepciones_panel, text="PERCEPCIONES", font=("Segoe UI", 15, "bold"), text_color="#f8fafc").pack(anchor="w", padx=14, pady=(12, 8))
-
-        if percepciones.empty:
-            ctk.CTkLabel(percepciones_panel, text="No posee percepciones.", text_color="#cbd5e1").pack(anchor="w", padx=14, pady=(0, 12))
+                text="La liquidación no posee retenciones ni percepciones.",
+                text_color="#cbd5e1",
+                font=("Segoe UI", 12)
+            ).pack(anchor="w", padx=14, pady=(0, 12))
         else:
-            tabla_perc = ttk.Treeview(
-                percepciones_panel,
-                columns=("Producto", "Descripcion", "Importe Fiscal"),
+            tabla_tax = ttk.Treeview(
+                retenciones_panel,
+                columns=("Tipo", "Concepto", "Base de cálculo", "Alícuota (%)", "Importe", "Código"),
                 show="headings",
-                height=6,
+                height=8,
                 selectmode="browse"
             )
-            tabla_perc.heading("Producto", text="Producto")
-            tabla_perc.heading("Descripcion", text="Descripcion")
-            tabla_perc.heading("Importe Fiscal", text="Importe Fiscal")
-            tabla_perc.column("Producto", width=180, anchor="center")
-            tabla_perc.column("Descripcion", width=420, anchor="w")
-            tabla_perc.column("Importe Fiscal", width=180, anchor="e")
-            tabla_perc.pack(fill="x", padx=12, pady=(0, 12))
+            tabla_tax.heading("Tipo", text="Tipo")
+            tabla_tax.heading("Concepto", text="Concepto")
+            tabla_tax.heading("Base de cálculo", text="Base de cálculo")
+            tabla_tax.heading("Alícuota (%)", text="Alícuota (%)")
+            tabla_tax.heading("Importe", text="Importe")
+            tabla_tax.heading("Código", text="Código")
+            tabla_tax.column("Tipo", width=90, anchor="center")
+            tabla_tax.column("Concepto", width=320, anchor="w")
+            tabla_tax.column("Base de cálculo", width=170, anchor="e")
+            tabla_tax.column("Alícuota (%)", width=110, anchor="center")
+            tabla_tax.column("Importe", width=150, anchor="e")
+            tabla_tax.column("Código", width=170, anchor="center")
+            tabla_tax.pack(fill="x", padx=12, pady=(0, 12))
 
-            scroll_perc_y = ttk.Scrollbar(percepciones_panel, orient="vertical", command=tabla_perc.yview)
-            scroll_perc_y.pack(side="right", fill="y", padx=(0, 12), pady=(0, 12))
-            tabla_perc.configure(yscrollcommand=scroll_perc_y.set)
+            scroll_tax_y = ttk.Scrollbar(retenciones_panel, orient="vertical", command=tabla_tax.yview)
+            scroll_tax_y.pack(side="right", fill="y", padx=(0, 12), pady=(0, 12))
+            tabla_tax.configure(yscrollcommand=scroll_tax_y.set)
 
-            for _, fila in percepciones.iterrows():
-                producto = str(fila.get("Producto", "-"))
-                descripcion = str(fila.get("Descripcion de Producto", fila.get("Descripcion del Producto", "-")))
-                importe = formatear_importe(fila.get("Importe Fiscal", 0))
-                tabla_perc.insert("", "end", values=(producto, descripcion, importe))
+            for registro in registros_tax:
+                tabla_tax.insert(
+                    "",
+                    "end",
+                    values=(
+                        registro["Tipo"],
+                        registro["Concepto"],
+                        registro["Base de cálculo"],
+                        registro["Alícuota (%)"],
+                        registro["Importe"],
+                        registro["Código"],
+                    )
+                )
 
         ventana.protocol("WM_DELETE_WINDOW", ventana.destroy)
 
@@ -578,6 +722,7 @@ class PantallaControl(ctk.CTkFrame):
 
         self.combo_fecha.set("Todas")
         self.combo_tipo.set("TODOS")
+        self.mostrar_estado("Datos cargados correctamente y listos para visualizar.", "#86efac")
         self.aplicar_filtros("Todas", "TODOS")
 
     def cargar_tabla(self, df):
@@ -644,8 +789,12 @@ class PantallaControl(ctk.CTkFrame):
         df = self.df_original.copy()
 
         if df.empty:
+            self.mostrar_estado("No hay resultados para el filtro seleccionado.", "#fca5a5")
             self.cargar_tabla(df)
             return
+
+        estado_tipo = tipo if tipo and tipo != "TODOS" else "todos"
+        self.mostrar_estado(f"Mostrando {len(df)} documentos para {estado_tipo}.", "#93c5fd")
 
         if "Fecha Pago" in df.columns:
             df["Fecha Pago"] = pd.to_datetime(df["Fecha Pago"], errors="coerce")
@@ -657,19 +806,19 @@ class PantallaControl(ctk.CTkFrame):
             pass
         elif tipo == "PARCIALES":
             df = df[
-                (df["Tipo Doc"].astype(str) == "L#")
+                (df["Tipo Doc"].astype(str).str.strip() == "L#")
                 &
-                (df.get("Descripcion de la liquidacion", pd.Series(dtype=str)).astype(str) == "Liquidación Parcial")
+                df.get("Descripcion de la liquidacion", pd.Series(dtype=str)).map(es_liquidacion_parcial)
             ]
         elif tipo == "FINALES":
             df = df[
-                (df["Tipo Doc"].astype(str) == "L#")
+                (df["Tipo Doc"].astype(str).str.strip() == "L#")
                 &
-                (df.get("Descripcion de la liquidacion", pd.Series(dtype=str)).astype(str) == "Liquidación Final C/Parcial")
+                df.get("Descripcion de la liquidacion", pd.Series(dtype=str)).map(es_liquidacion_final)
             ]
         elif tipo == "COMISIONES":
-            df = df[df["Tipo Doc"].astype(str) == "C0"]
+            df = df[df["Tipo Doc"].astype(str).str.strip() == "C0"]
         elif tipo == "AJUSTES":
-            df = df[df["Tipo Doc"].astype(str) == "H7"]
+            df = df[df["Tipo Doc"].astype(str).str.strip() == "H7"]
 
         self.cargar_tabla(df)

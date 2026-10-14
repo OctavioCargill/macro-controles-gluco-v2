@@ -7,11 +7,6 @@ def cargar_historico(ruta_archivo):
         ruta_archivo
     )
 
-    print(
-        f"Histórico cargado: "
-        f"{len(df_historico)} registros"
-    )
-
     return df_historico
 
 

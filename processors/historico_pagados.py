@@ -7,11 +7,6 @@ def cargar_historico_pagados(ruta_archivo):
         ruta_archivo
     )
 
-    print(
-        f"Histórico pagados cargado: "
-        f"{len(df_pagados)} registros"
-    )
-
     return df_pagados
 
 

@@ -1,8 +1,14 @@
+from datetime import datetime
+
 import customtkinter as ctk
+
+from services.auditoria import APP_VERSION, construir_diagnostico
 
 from .pantalla_inicio import (
     MenuPrincipal,
+    PantallaBusqueda,
     PantallaCargaDatos,
+    PantallaMetricas,
     PantallaVisualizacion,
     PantallaLimpieza,
 )
@@ -20,11 +26,23 @@ class App(ctk.CTk):
         self.geometry("1200x800")
         self.minsize(1100, 700)
 
+        self.version = APP_VERSION
+        self.ultima_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.diagnostico = construir_diagnostico()
         self.df_procesado = None
         self.resumen = {}
+        self.integridad_procesamiento = {
+            "encontradas": 0,
+            "procesadas": 0,
+            "mostradas": 0,
+            "descartadas": 0,
+            "descartes": [],
+        }
 
         self.frames = {
             "menu": MenuPrincipal(self),
+            "metricas": PantallaMetricas(self),
+            "busqueda": PantallaBusqueda(self),
             "carga": PantallaCargaDatos(self),
             "visualizacion": PantallaVisualizacion(self),
             "limpieza": PantallaLimpieza(self),
@@ -43,6 +61,12 @@ class App(ctk.CTk):
             else:
                 frame.pack_forget()
 
+        if nombre == "metricas" and hasattr(self.frames["metricas"], "actualizar_metricas"):
+            self.frames["metricas"].actualizar_metricas()
+
+        if nombre == "busqueda" and hasattr(self.frames["busqueda"], "actualizar_resultados"):
+            self.frames["busqueda"].actualizar_resultados()
+
         if nombre == "visualizacion" and self.df_procesado is not None:
             self.frames["visualizacion"].cargar_dataframe(self.df_procesado)
 
@@ -51,6 +75,12 @@ class App(ctk.CTk):
 
     def mostrar_pantalla_carga(self):
         self.mostrar_pantalla("carga")
+
+    def mostrar_pantalla_metrica(self):
+        self.mostrar_pantalla("metricas")
+
+    def mostrar_pantalla_busqueda(self):
+        self.mostrar_pantalla("busqueda")
 
     def mostrar_pantalla_visualizacion(self):
         if self.df_procesado is not None:

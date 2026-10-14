@@ -3,7 +3,8 @@ from loaders.sap090 import cargar_090
 
 from processors.ids import (
     generar_id_corto,
-    generar_id_largo
+    generar_id_largo,
+    normalizar_nro_legal
 )
 
 from processors.historico import (
@@ -52,6 +53,7 @@ def ejecutar_control(
 
     df = cargar_044(archivo_044)
 
+    df = normalizar_nro_legal(df)
     df = generar_id_corto(df)
     df = generar_id_largo(df)
 
@@ -131,28 +133,7 @@ def ejecutar_control(
             ).sum()
     }
 
-    print(df.columns.tolist())
-    print(
-        df[
-            [
-                "Numero Doc",
-                "Tipo Doc"
-            ]
-        ].head()
-    )
-        
     return {
         "resumen": resumen,
         "df": df
     }
-
-    print(
-        df[
-            [
-                "Numero Doc",
-                "Producto",
-                "Importe Fiscal"
-            ]
-        ]
-        .head(30)
-    )
