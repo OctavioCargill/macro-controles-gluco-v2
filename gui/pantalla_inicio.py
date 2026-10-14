@@ -47,6 +47,7 @@ class MenuPrincipal(ctk.CTkFrame):
             ("CARGAR BASES", self.master.mostrar_pantalla_carga),
             ("VISUALIZAR LIQUIDACIONES", self.master.mostrar_pantalla_visualizacion),
             ("LIMPIEZA DE LIQUIDACIONES CONTROLADAS", self.master.mostrar_pantalla_limpieza),
+            ("ACERCA DE", self.master.mostrar_acerca_de),
             ("SALIR", self.master.cerrar_aplicacion),
         ]
 
@@ -128,7 +129,7 @@ class MenuPrincipal(ctk.CTkFrame):
             if "Fecha Pago" in fila and pd.notna(fila.get("Fecha Pago")):
                 fecha = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
             estado = str(fila.get("RESULTADO_FINAL", "-"))
-            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado, "Abrir"))
+            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado))
 
     def abrir_detalle_busqueda(self, event=None):
         seleccion = self.tabla_busqueda.selection()
@@ -349,7 +350,7 @@ class PantallaBusqueda(ctk.CTkFrame):
             if "Fecha Pago" in fila and pd.notna(fila.get("Fecha Pago")):
                 fecha = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
             estado = str(fila.get("RESULTADO_FINAL", "-"))
-            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado, "Abrir"))
+            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado))
 
     def volver_al_menu(self):
         self.master.mostrar_pantalla("menu")
@@ -440,6 +441,18 @@ class PantallaCargaDatos(ctk.CTkFrame):
             font=("Segoe UI", 14, "bold")
         )
         self.btn_procesar.pack(side="left", padx=(0, 12))
+
+        btn_acerca_de = ctk.CTkButton(
+            acciones,
+            text="ACERCA DE",
+            command=self.master.mostrar_acerca_de,
+            width=180,
+            height=48,
+            fg_color="#1d4ed8",
+            hover_color="#1e40af",
+            font=("Segoe UI", 14, "bold")
+        )
+        btn_acerca_de.pack(side="left", padx=(0, 12))
 
         btn_volver = ctk.CTkButton(
             acciones,
@@ -708,8 +721,9 @@ class PantallaCargaDatos(ctk.CTkFrame):
                 raise TypeError("La macro no devolvió un DataFrame válido para continuar.")
 
             self.master.df_procesado = df
-            self.master.resumen = resumen
             self.master.ultima_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.master.resumen = dict(resumen)
+            self.master.resumen["ultima_ejecucion"] = self.master.ultima_ejecucion
             self.master.integridad_procesamiento = {
                 "encontradas": int(resumen.get("total", 0)),
                 "procesadas": int(resumen.get("total", 0)),

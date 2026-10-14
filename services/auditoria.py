@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
-APP_VERSION = "v0.5.1"
+APP_NAME = "Macro Controles Gluco V2"
+APP_VERSION = "2.0.0"
+APP_VERSION_DATE = "2026-10-14"
+APP_ROOT = Path(__file__).resolve().parents[1]
+APP_ICON_PATH = APP_ROOT / "assets" / "icons" / "placeholder.ico"
+APP_DATA_PATH = APP_ROOT / "data"
 
 
 def _to_int(value, default=0):
@@ -149,6 +154,8 @@ def metricas_generales(df=None, resumen=None):
                 base["liquidaciones_parciales"] = _to_int(valor)
             elif clave == "comisiones":
                 base["liquidaciones_comision"] = _to_int(valor)
+            elif clave == "ultima_ejecucion":
+                base["ultima_ejecucion"] = str(valor) if valor is not None else "No ejecutado"
 
     if df is not None and not df.empty:
         controlados = _serie_segura(df, "CONTROLADO", False)
