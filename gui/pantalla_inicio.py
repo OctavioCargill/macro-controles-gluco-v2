@@ -9,7 +9,7 @@ import customtkinter as ctk
 import pandas as pd
 from tkinter import ttk
 
-from services.auditoria import APP_VERSION, construir_diagnostico, escribir_log_auditoria, metricas_generales, validar_archivos_requeridos
+from services.auditoria import APP_NAME, APP_VERSION, construir_diagnostico, escribir_log_auditoria, metricas_generales, validar_archivos_requeridos
 from services.procesar_control import ejecutar_control
 
 from .pantalla_control import PantallaControl
@@ -26,11 +26,19 @@ class MenuPrincipal(ctk.CTkFrame):
 
         titulo = ctk.CTkLabel(
             self,
-            text="CONTROLES GLUCO V2",
+            text=APP_NAME,
             font=("Segoe UI", 30, "bold"),
             text_color="#f8fafc"
         )
-        titulo.pack(pady=(30, 25))
+        titulo.pack(pady=(30, 12))
+
+        self.lbl_version = ctk.CTkLabel(
+            self,
+            text=f"Versión {APP_VERSION}",
+            font=("Segoe UI", 12, "bold"),
+            text_color="#93c5fd"
+        )
+        self.lbl_version.pack(pady=(0, 18))
 
         panel = ctk.CTkFrame(
             self,

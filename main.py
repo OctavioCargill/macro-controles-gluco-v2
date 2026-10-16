@@ -67,6 +67,8 @@ from processors.cruce_090 import (
     enriquecer_con_090
 )
 
+from services.auditoria import APP_NAME, APP_VERSION
+
 
 def obtener_retenciones(grupo):
 
@@ -122,8 +124,8 @@ def main():
 
     print()
     print("=" * 50)
-    print("CONTROLES GLUCO V2")
-    print("Version 0.5 Stable")
+    print(APP_NAME)
+    print(f"Versión {APP_VERSION}")
     print("=" * 50)
     print()
 
