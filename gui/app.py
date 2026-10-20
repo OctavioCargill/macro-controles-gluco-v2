@@ -1,11 +1,27 @@
+import sys
 from datetime import datetime
 from pathlib import Path
 
+from services.auditoria import resolver_ruta_base
+
+ROOT_DIR = resolver_ruta_base()
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import customtkinter as ctk
 
-from services.auditoria import APP_DATA_PATH, APP_ICON_PATH, APP_NAME, APP_VERSION, APP_VERSION_DATE, construir_diagnostico
+from services.auditoria import (
+    APP_DATA_PATH,
+    APP_ICON_PATH,
+    APP_NAME,
+    APP_VERSION,
+    APP_VERSION_DATE,
+    asegurar_estructura_runtime,
+    construir_diagnostico,
+    evaluar_integridad_liquidaciones,
+)
 
-from .pantalla_inicio import (
+from gui.pantalla_inicio import (
     MenuPrincipal,
     PantallaBusqueda,
     PantallaCargaDatos,
@@ -27,6 +43,7 @@ class App(ctk.CTk):
         self.geometry("1200x800")
         self.minsize(1100, 700)
 
+        asegurar_estructura_runtime()
         self.version = APP_VERSION
         self.icon_path = APP_ICON_PATH
         self._configurar_icono()
@@ -39,8 +56,11 @@ class App(ctk.CTk):
             "encontradas": 0,
             "procesadas": 0,
             "mostradas": 0,
+            "historizadas": 0,
             "descartadas": 0,
             "descartes": [],
+            "estado": "REQUIERE_REVISION",
+            "lista_para_produccion": False,
         }
 
         self.frames = {
@@ -186,9 +206,33 @@ class App(ctk.CTk):
             self.frames["limpieza"].cargar_documentos(self.df_procesado)
         self.mostrar_pantalla("limpieza")
 
+    def ejecutar_prueba_integridad(self):
+        """Ejecuta la validación del estado de integridad general de la app.
+        El menú dispara este método, por lo que debe existir en App.
+        """
+        estado = self.integridad_procesamiento.copy()
+        if not estado.get("lista_para_produccion"):
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Pruebas de integridad",
+                "El procesamiento actual requiere revisión antes de declararse listo para producción."
+            )
+        else:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "Pruebas de integridad",
+                f"Estado: {estado.get('estado', 'OK')}\n"
+                f"Detectadas: {estado.get('encontradas', 0)}\n"
+                f"Procesadas: {estado.get('procesadas', 0)}\n"
+                f"Mostradas: {estado.get('mostradas', 0)}\n"
+                f"Historizadas: {estado.get('historizadas', 0)}"
+            )
+        return estado
+
     def cerrar_aplicacion(self):
         self.destroy()
 
 
-app = App()
-app.mainloop()
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()

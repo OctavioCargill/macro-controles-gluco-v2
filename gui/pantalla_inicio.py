@@ -1,6 +1,7 @@
 import importlib.util
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -9,10 +10,25 @@ import customtkinter as ctk
 import pandas as pd
 from tkinter import ttk
 
-from services.auditoria import APP_NAME, APP_VERSION, construir_diagnostico, escribir_log_auditoria, metricas_generales, validar_archivos_requeridos
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from services.auditoria import (
+    APP_DATA_PATH,
+    APP_NAME,
+    APP_ROOT,
+    APP_VERSION,
+    asegurar_estructura_runtime,
+    construir_diagnostico,
+    escribir_log_auditoria,
+    evaluar_integridad_liquidaciones,
+    metricas_generales,
+    validar_archivos_requeridos,
+)
 from services.procesar_control import ejecutar_control
 
-from .pantalla_control import PantallaControl
+from gui.pantalla_control import PantallaControl
 
 
 class MenuPrincipal(ctk.CTkFrame):
@@ -55,6 +71,7 @@ class MenuPrincipal(ctk.CTkFrame):
             ("CARGAR BASES", self.master.mostrar_pantalla_carga),
             ("VISUALIZAR LIQUIDACIONES", self.master.mostrar_pantalla_visualizacion),
             ("LIMPIEZA DE LIQUIDACIONES CONTROLADAS", self.master.mostrar_pantalla_limpieza),
+            ("PRUEBAS DE INTEGRIDAD", self.master.ejecutar_prueba_integridad),
             ("ACERCA DE", self.master.mostrar_acerca_de),
             ("SALIR", self.master.cerrar_aplicacion),
         ]
@@ -505,7 +522,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
         for widget in self.validacion_grid.winfo_children():
             widget.destroy()
 
-        recursos = validar_archivos_requeridos(Path(__file__).resolve().parents[1])
+        recursos = validar_archivos_requeridos(APP_ROOT)
         for idx, recurso in enumerate(recursos):
             fila = ctk.CTkFrame(self.validacion_grid, fg_color="#0f172a", corner_radius=10, border_width=1, border_color="#334155")
             fila.grid(row=idx, column=0, sticky="ew", padx=0, pady=6)
@@ -533,7 +550,8 @@ class PantallaCargaDatos(ctk.CTkFrame):
             self.log.configure(state="disabled")
 
     def _ruta_data(self):
-        return Path(__file__).resolve().parents[1] / "data"
+        asegurar_estructura_runtime(APP_ROOT)
+        return APP_DATA_PATH
 
     def _mostrar_advertencia(self, titulo, mensaje):
         self.estado.configure(text=mensaje, text_color="#fbbf24")
@@ -676,7 +694,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
     def procesar(self):
         self.actualizar_validacion_archivos()
-        recursos = validar_archivos_requeridos(Path(__file__).resolve().parents[1])
+        recursos = validar_archivos_requeridos(APP_ROOT)
         faltantes = [recurso["nombre"] for recurso in recursos if recurso["estado"] == "FALTANTE"]
         escribir_log_auditoria(f"Inicio de procesamiento. Archivos validados: {', '.join(recurso['nombre'] for recurso in recursos)}")
 
@@ -732,14 +750,30 @@ class PantallaCargaDatos(ctk.CTkFrame):
             self.master.ultima_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.master.resumen = dict(resumen)
             self.master.resumen["ultima_ejecucion"] = self.master.ultima_ejecucion
+            resumen_integridad = evaluar_integridad_liquidaciones(
+                liquidaciones_detectadas=int(resumen.get("total", 0)),
+                liquidaciones_procesadas=int(resumen.get("total", 0)),
+                liquidaciones_mostradas=int(len(df)),
+                liquidaciones_historizadas=int(len(df)),
+            )
             self.master.integridad_procesamiento = {
                 "encontradas": int(resumen.get("total", 0)),
                 "procesadas": int(resumen.get("total", 0)),
                 "mostradas": int(len(df)),
+                "historizadas": int(len(df)),
                 "descartadas": 0,
                 "descartes": [],
+                "estado": resumen_integridad["estado"],
+                "lista_para_produccion": resumen_integridad["lista_para_produccion"],
+                "diferencias": resumen_integridad["diferencias"],
+                "justificaciones": {},
             }
-            self.master.diagnostico = construir_diagnostico(Path(__file__).resolve().parents[1])
+            self.master.diagnostico = construir_diagnostico(APP_ROOT)
+            if not resumen_integridad["lista_para_produccion"]:
+                self._mostrar_error(
+                    "Pruebas de Integridad",
+                    "El procesamiento no está listo para producción: los conteos de liquidaciones no coinciden. Revise y justifique cada diferencia antes de continuar."
+                )
 
             pantalla = self.master.frames["visualizacion"]
             pantalla.actualizar(
@@ -911,7 +945,7 @@ class PantallaLimpieza(ctk.CTkFrame):
         self.log.configure(state="disabled")
 
     def _ruta_historico(self):
-        return Path(__file__).resolve().parents[1] / "data" / "Historico_Documentos_Controlados.xlsx"
+        return APP_DATA_PATH / "Historico_Documentos_Controlados.xlsx"
 
     def _validar_ruta_historico(self, ruta):
         logger = logging.getLogger(__name__)

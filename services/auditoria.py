@@ -1,17 +1,148 @@
 import json
 import logging
 import os
+import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
+
+def resolver_ruta_base(base_dir=None):
+    """Resuelve la ruta base de la aplicación sin depender del cwd ni de rutas locales.
+
+    En desarrollo, la base es la carpeta raíz del proyecto. En ejecutable empaquetado,
+    la base debe ser el directorio donde se encuentra el .exe.
+    """
+    if base_dir is not None:
+        return Path(base_dir).expanduser().resolve()
+
+    if getattr(sys, "frozen", False):
+        executable = getattr(sys, "executable", None)
+        if executable:
+            return Path(executable).resolve().parent
+        if hasattr(sys, "_MEIPASS"):
+            return Path(sys._MEIPASS).resolve()
+
+    return Path(__file__).resolve().parents[1]
+
+
+def resolver_estructura_runtime(base_dir=None):
+    base = resolver_ruta_base(base_dir)
+    rutas = {
+        "root": base,
+        "data": base / "data",
+        "logs": base / "logs",
+        "config": base / "config",
+        "icon": base / "icon",
+    }
+    for nombre, ruta in rutas.items():
+        if nombre in {"data", "logs", "config", "icon"}:
+            ruta.mkdir(parents=True, exist_ok=True)
+    return rutas
+
+
 APP_NAME = "Macro Controles Gluco V2"
 APP_VERSION = "2.0.0"
 APP_VERSION_DATE = "2026-10-14"
-APP_ROOT = Path(__file__).resolve().parents[1]
-APP_ICON_PATH = APP_ROOT / "assets" / "icons" / "placeholder.ico"
-APP_DATA_PATH = APP_ROOT / "data"
+APP_ROOT = resolver_ruta_base()
+APP_RUNTIME = resolver_estructura_runtime(APP_ROOT)
+APP_DATA_PATH = APP_RUNTIME["data"]
+APP_LOGS_PATH = APP_RUNTIME["logs"]
+APP_CONFIG_PATH = APP_RUNTIME["config"]
+APP_ICON_DIR = APP_RUNTIME["icon"]
+APP_ICON_PATH = APP_ICON_DIR / "placeholder.ico"
+if not APP_ICON_PATH.exists():
+    APP_ICON_PATH = APP_ROOT / "assets" / "icons" / "placeholder.ico"
+
+
+def asegurar_estructura_runtime(base_dir=None):
+    rutas = resolver_estructura_runtime(base_dir)
+    base = rutas["root"]
+
+    icon_dir = rutas["icon"]
+    icon_source = base / "assets" / "icons" / "placeholder.ico"
+    if not icon_dir.joinpath("placeholder.ico").exists() and icon_source.exists():
+        icon_dir.joinpath("placeholder.ico").write_bytes(icon_source.read_bytes())
+
+    config_dir = rutas["config"]
+    settings_path = config_dir / "app_settings.json"
+    if not settings_path.exists():
+        settings_path.write_text(json.dumps({
+            "product_name": APP_NAME,
+            "version": APP_VERSION,
+            "author": "Configurable",
+            "description": "Herramienta de control y validación de liquidaciones.",
+            "default_data_dir": "data",
+            "default_logs_dir": "logs",
+        }, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return rutas
+
+
+asegurar_estructura_runtime(APP_ROOT)
+
+
+def localizar_archivos_por_patron(carpeta, patron, extensiones=None, max_resultados=10):
+    """Busca archivos por tokens dentro del nombre y acepta sufijos de fecha/tiempo.
+
+    Ejemplos:
+    - 044 -> 044.xlsx, 044_2024_01_01.xlsx, 044_20240101.xlsb
+    - Historico_Documentos_Controlados -> Historico_Documentos_Controlados_2024_01_01.xlsb
+    """
+    carpeta = Path(carpeta).expanduser().resolve()
+    patron = str(patron or "").strip()
+    if not patron or not carpeta.exists() or not carpeta.is_dir():
+        return []
+
+    extensiones = {ext.lower() for ext in (extensiones or [])}
+    tokens = [token for token in re.split(r"[^a-z0-9]+", patron.lower()) if token]
+    if not tokens:
+        return []
+
+    archivos = []
+    for path in sorted(carpeta.iterdir()):
+        if not path.is_file():
+            continue
+        nombre = path.name.lower()
+        if extensiones and path.suffix.lower() not in extensiones:
+            continue
+        if all(token in nombre for token in tokens):
+            archivos.append(path)
+
+    if not archivos:
+        nombre_normalizado = "".join(re.split(r"[^a-z0-9]+", patron.lower()))
+        for path in sorted(carpeta.iterdir()):
+            if not path.is_file():
+                continue
+            stem = "".join(re.split(r"[^a-z0-9]+", path.stem.lower()))
+            if stem.startswith(nombre_normalizado) or nombre_normalizado in stem:
+                archivos.append(path)
+
+    return archivos[:max_resultados]
+
+
+def resolver_ruta_recurso(nombre, base_dir=None, subdir="data", extensiones=None):
+    base = resolver_ruta_base(base_dir)
+    carpeta = (base / subdir).resolve()
+    candidatos = localizar_archivos_por_patron(carpeta, nombre, extensiones=extensiones)
+    if candidatos:
+        return candidatos[0]
+    return None
+
+
+def _ruta_esperada(nombre, base_dir=None):
+    base = resolver_ruta_base(base_dir)
+    normalizados = {
+        "044": "044.xlsx",
+        "077": "077.xlsx",
+        "090": "090.xlsx",
+        "Historico_Documentos_Controlados": "Historico_Documentos_Controlados.xlsb",
+        "Historico_Documentos_Controlados_fallback": "Historico_Documentos_Controlados_fallback.csv",
+    }
+    nombre_base = normalizados.get(nombre, nombre)
+    return (base / "data" / nombre_base).resolve()
 
 
 def _to_int(value, default=0):
@@ -22,49 +153,58 @@ def _to_int(value, default=0):
 
 
 def validar_archivos_requeridos(base_dir=None):
-    if base_dir is None:
-        base_dir = Path(__file__).resolve().parents[1]
+    """Valida archivos de negocio en la carpeta data usando patrones tolerantes.
 
-    carpeta_data = Path(base_dir) / "data"
-    carpeta_exports = Path(base_dir) / "exports"
-    carpeta_gui = Path(base_dir) / "gui"
-    carpeta_loaders = Path(base_dir) / "loaders"
-    carpeta_processors = Path(base_dir) / "processors"
-    carpeta_services = Path(base_dir) / "services"
-    carpeta_utils = Path(base_dir) / "utils"
+    No exige nombres exactos, admite sufijos de fecha y extensiones equivalentes.
+    """
+    if base_dir is None:
+        base_dir = APP_ROOT
+
+    base = resolver_ruta_base(base_dir)
+    rutas_runtime = asegurar_estructura_runtime(base)
+    carpeta_data = rutas_runtime["data"]
+    logger = logging.getLogger(__name__)
 
     item_requerido = [
-        ("044", carpeta_data / "044.xlsx", "archivo"),
-        ("077", carpeta_data / "077.xlsx", "archivo"),
-        ("090", carpeta_data / "090.xlsx", "archivo"),
-        ("Historico_Documentos_Controlados", carpeta_data / "Historico_Documentos_Controlados.xlsb", "archivo"),
-        ("Historico_Documentos_Controlados_fallback", carpeta_data / "Historico_Documentos_Controlados_fallback.csv", "archivo"),
+        ("base", base, "directorio"),
         ("data", carpeta_data, "directorio"),
-        ("exports", carpeta_exports, "directorio"),
-        ("gui", carpeta_gui, "directorio"),
-        ("loaders", carpeta_loaders, "directorio"),
-        ("processors", carpeta_processors, "directorio"),
-        ("services", carpeta_services, "directorio"),
-        ("utils", carpeta_utils, "directorio"),
-        ("requirements", Path(base_dir) / "requirements.txt", "archivo"),
+        ("logs", rutas_runtime["logs"], "directorio"),
+        ("config", rutas_runtime["config"], "directorio"),
+        ("icon", rutas_runtime["icon"], "directorio"),
+        ("044", "044", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
+        ("077", "077", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
+        ("090", "090", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
+        ("Historico_Documentos_Controlados", "Historico_Documentos_Controlados", "archivo", [".xlsb", ".xlsx", ".xls", ".csv"]),
+        ("Historico_Documentos_Controlados_fallback", "Historico_Documentos_Controlados_fallback", "archivo", [".csv", ".xlsx", ".xls", ".xlsb"]),
     ]
 
     resultado = []
-    for nombre, path, tipo in item_requerido:
+    for item in item_requerido:
+        if len(item) == 3:
+            nombre, path, tipo = item
+            ruta_obj = Path(path)
+            ruta_busqueda = ruta_obj
+        else:
+            nombre, patron, tipo, extensiones = item
+            ruta_obj = resolver_ruta_recurso(patron, base_dir=base, subdir="data", extensiones=extensiones)
+            ruta_busqueda = ruta_obj or _ruta_esperada(nombre, base_dir=base)
+            logger.info("Validando recurso '%s': base=%s data=%s ruta_esperada=%s ruta_real=%s", nombre, base, carpeta_data, ruta_busqueda, ruta_obj)
+
         if tipo == "directorio":
-            existe = path.exists() and path.is_dir()
+            existe = ruta_obj.exists() and ruta_obj.is_dir()
             estado = "OK" if existe else "FALTANTE"
             size = "-" if not existe else "directorio"
-            modificado = "-" if not existe else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            modificado = "-" if not existe else datetime.fromtimestamp(ruta_obj.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         else:
-            existe = path.exists() and path.is_file()
+            existe = ruta_obj.exists() and ruta_obj.is_file() if ruta_obj is not None else ruta_busqueda.exists() and ruta_busqueda.is_file()
             estado = "OK" if existe else "FALTANTE"
-            size = "-" if not existe else f"{path.stat().st_size} bytes"
-            modificado = "-" if not existe else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            size = "-" if not existe else f"{ruta_busqueda.stat().st_size} bytes"
+            modificado = "-" if not existe else datetime.fromtimestamp(ruta_busqueda.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
         resultado.append({
             "nombre": nombre,
-            "ruta": str(path),
+            "ruta": str(ruta_busqueda),
+            "ruta_real": str(ruta_obj) if ruta_obj is not None else str(ruta_busqueda),
             "estado": estado,
             "tipo": tipo,
             "size": size,
@@ -169,6 +309,32 @@ def metricas_generales(df=None, resumen=None):
     return base
 
 
+def construir_diagnostico(base_dir=None):
+    base = resolver_ruta_base(base_dir)
+    data = (base / "data").resolve()
+    recursos = validar_archivos_requeridos(base)
+    encontrados = [recurso for recurso in recursos if recurso["estado"] == "OK"]
+    faltantes = [recurso for recurso in recursos if recurso["estado"] == "FALTANTE"]
+    logging.getLogger(__name__).info(
+        "Diagnostico de rutas: base=%s data=%s encontrados=%s faltantes=%s",
+        base,
+        data,
+        [recurso["nombre"] for recurso in encontrados],
+        [recurso["nombre"] for recurso in faltantes],
+    )
+    return {
+        "version": APP_VERSION,
+        "base_detectada": str(base),
+        "data_detectada": str(data),
+        "ultima_ejecucion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "estado_archivos": recursos,
+        "archivos_encontrados": [recurso["ruta_real"] for recurso in encontrados],
+        "archivos_faltantes": [recurso["ruta"] for recurso in faltantes],
+        "faltantes": faltantes,
+        "hay_errores": bool(faltantes),
+    }
+
+
 def buscar_global(df, texto_busqueda):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -205,7 +371,7 @@ def buscar_global(df, texto_busqueda):
 
 
 def escribir_log_auditoria(mensaje):
-    log_dir = Path(__file__).resolve().parents[1] / "logs"
+    log_dir = APP_LOGS_PATH
     log_dir.mkdir(exist_ok=True)
     ruta_log = log_dir / "auditoria.log"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -216,13 +382,54 @@ def escribir_log_auditoria(mensaje):
     logger.info(mensaje)
 
 
-def construir_diagnostico(base_dir=None):
-    recursos = validar_archivos_requeridos(base_dir)
-    faltantes = [recurso for recurso in recursos if recurso["estado"] == "FALTANTE"]
-    return {
-        "version": APP_VERSION,
-        "ultima_ejecucion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "estado_archivos": recursos,
-        "faltantes": faltantes,
-        "hay_errores": bool(faltantes),
+def evaluar_integridad_liquidaciones(
+    liquidaciones_detectadas,
+    liquidaciones_procesadas,
+    liquidaciones_mostradas,
+    liquidaciones_historizadas,
+    justificaciones=None,
+):
+    """Valida la consistencia entre los cuatro conteos de liquidaciones.
+
+    Regla de negocio:
+    - si todos coinciden -> OK
+    - si no coinciden y no hay justificación -> REQUIERE_REVISION
+    - si no coinciden pero se documenta justificación -> OK_CON_JUSTIFICACION
+    """
+    justificaciones = justificaciones or {}
+    conteos = {
+        "detectadas": int(liquidaciones_detectadas or 0),
+        "procesadas": int(liquidaciones_procesadas or 0),
+        "mostradas": int(liquidaciones_mostradas or 0),
+        "historizadas": int(liquidaciones_historizadas or 0),
     }
+
+    valores = list(conteos.values())
+    diffs = {
+        clave: valor
+        for clave, valor in {
+            "detectadas": conteos["detectadas"] - conteos["procesadas"],
+            "procesadas": conteos["procesadas"] - conteos["mostradas"],
+            "mostradas": conteos["mostradas"] - conteos["historizadas"],
+            "historizadas": conteos["historizadas"] - conteos["detectadas"],
+        }.items()
+        if valor != 0
+    }
+
+    if len(set(valores)) == 1:
+        estado = "OK"
+        lista_para_produccion = True
+    elif any(str(valor).strip() for valor in justificaciones.values()):
+        estado = "OK_CON_JUSTIFICACION"
+        lista_para_produccion = True
+    else:
+        estado = "REQUIERE_REVISION"
+        lista_para_produccion = False
+
+    return {
+        "estado": estado,
+        "lista_para_produccion": lista_para_produccion,
+        "diferencias": diffs,
+        "justificaciones": justificaciones,
+    }
+

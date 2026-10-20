@@ -1,3 +1,4 @@
+from services.auditoria import APP_ROOT, resolver_ruta_recurso
 from loaders.sap044 import cargar_044
 from loaders.sap090 import cargar_090
 
@@ -57,12 +58,19 @@ def ejecutar_control(
     df = generar_id_corto(df)
     df = generar_id_largo(df)
 
-    df_historico = cargar_historico(
-        "data/historico_controlados.xlsx"
+    ruta_historico = resolver_ruta_recurso(
+        "Historico_Documentos_Controlados",
+        base_dir=APP_ROOT,
+        subdir="data",
+        extensiones=[".xlsb", ".xlsx", ".xls", ".csv"],
     )
+    if ruta_historico is None:
+        ruta_historico = APP_ROOT / "data" / "Historico_Documentos_Controlados.xlsb"
+
+    df_historico = cargar_historico(ruta_historico)
 
     df_pagados = cargar_historico_pagados(
-        "data/historico_pagados.xlsx"
+        APP_ROOT / "data" / "historico_pagados.xlsx"
     )
 
     df = marcar_pagados(

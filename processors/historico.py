@@ -1,13 +1,36 @@
+import logging
+from pathlib import Path
+
 import pandas as pd
 
 
 def cargar_historico(ruta_archivo):
+    ruta = Path(ruta_archivo)
+    if ruta.suffix.lower() == ".xlsb":
+        try:
+            return pd.read_excel(ruta, engine="pyxlsb")
+        except ImportError as exc:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "No se pudo importar pyxlsb para %s. Se intentará usar CSV de fallback. Detalle: %s",
+                ruta,
+                exc,
+            )
+            rutas_fallback = [
+                ruta.with_name(f"{ruta.stem}_fallback.csv"),
+                ruta.with_suffix(".csv"),
+                ruta.with_name(f"{ruta.stem}.csv"),
+            ]
+            for fallback in rutas_fallback:
+                if fallback.exists() and fallback.is_file():
+                    logger.info("Cargando histórico desde fallback CSV: %s", fallback)
+                    return pd.read_csv(fallback)
+            raise ImportError(
+                "No se pudo abrir el histórico .xlsb porque falta pyxlsb y no existe un CSV de fallback válido. "
+                "Instale pyxlsb o incluya un archivo de respaldo CSV."
+            ) from exc
 
-    df_historico = pd.read_excel(
-        ruta_archivo
-    )
-
-    return df_historico
+    return pd.read_excel(ruta)
 
 
 def filtrar_controlados(
