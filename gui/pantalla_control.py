@@ -3,6 +3,8 @@ import re
 from tkinter import ttk
 
 import customtkinter as ctk
+
+from gui import tema as T
 import pandas as pd
 
 from processors.clasificador import (
@@ -18,12 +20,12 @@ class Tarjeta(ctk.CTkFrame):
         super().__init__(master)
 
         self.configure(
-            width=180,
+            width=120,
             height=110,
             corner_radius=18,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
 
         self.pack_propagate(False)
@@ -31,8 +33,8 @@ class Tarjeta(ctk.CTkFrame):
         self.lbl_titulo = ctk.CTkLabel(
             self,
             text=titulo,
-            font=("Segoe UI", 12, "bold"),
-            text_color="#cbd5e1",
+            font=T.ETIQUETA,
+            text_color=T.TEXTO_SECUNDARIO,
             anchor="w",
             justify="left"
         )
@@ -41,7 +43,7 @@ class Tarjeta(ctk.CTkFrame):
         self.lbl_valor = ctk.CTkLabel(
             self,
             text=str(valor),
-            font=("Segoe UI", 26, "bold"),
+            font=T.VALOR_DESTACADO,
             text_color=color,
             anchor="w",
             justify="left"
@@ -66,7 +68,7 @@ class PantallaControl(ctk.CTkFrame):
         self.df_tabla = pd.DataFrame()
         self.tipo_actual = "TODOS"
 
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
 
         self.pack(
             fill="both",
@@ -79,9 +81,9 @@ class PantallaControl(ctk.CTkFrame):
 
         titulo = ctk.CTkLabel(
             self,
-            text="RESUMEN CONTROL",
-            font=("Segoe UI", 30, "bold"),
-            text_color="#f8fafc"
+            text="Visualizar liquidaciones",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
         )
 
         titulo.pack(anchor="w", padx=8, pady=(18, 12))
@@ -89,41 +91,42 @@ class PantallaControl(ctk.CTkFrame):
         self.frame_tarjetas = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_tarjetas.pack(fill="x", pady=(0, 12))
 
-        self.tarjeta_total = Tarjeta(self.frame_tarjetas, "DOCUMENTOS", 0, "#60a5fa")
-        self.tarjeta_total.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_total = Tarjeta(self.frame_tarjetas, "DOCUMENTOS", 0, T.SERIE_TOTAL)
 
-        self.tarjeta_macro = Tarjeta(self.frame_tarjetas, "CONTROL MACRO", 0, "#34d399")
-        self.tarjeta_macro.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_macro = Tarjeta(self.frame_tarjetas, "CONTROL MACRO", 0, T.SERIE_MACRO)
 
-        self.tarjeta_manual = Tarjeta(self.frame_tarjetas, "CONTROL MANUAL", 0, "#fbbf24")
-        self.tarjeta_manual.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_manual = Tarjeta(self.frame_tarjetas, "CONTROL MANUAL", 0, T.SERIE_MANUAL)
 
-        self.tarjeta_parciales = Tarjeta(self.frame_tarjetas, "PARCIALES", 0, "#a78bfa")
-        self.tarjeta_parciales.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_parciales = Tarjeta(self.frame_tarjetas, "PARCIALES", 0, T.SERIE_PARCIALES)
 
-        self.tarjeta_finales = Tarjeta(self.frame_tarjetas, "FINALES", 0, "#38bdf8")
-        self.tarjeta_finales.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_finales = Tarjeta(self.frame_tarjetas, "FINALES", 0, T.SERIE_FINALES)
 
-        self.tarjeta_comisiones = Tarjeta(self.frame_tarjetas, "COMISIONES", 0, "#f472b6")
-        self.tarjeta_comisiones.pack(side="left", padx=(0, 10), pady=8)
+        self.tarjeta_comisiones = Tarjeta(self.frame_tarjetas, "COMISIONES", 0, T.SERIE_COMISIONES)
 
-        self.tarjeta_ajustes = Tarjeta(self.frame_tarjetas, "AJUSTES", 0, "#fb7185")
-        self.tarjeta_ajustes.pack(side="left", pady=8)
+        self.tarjeta_ajustes = Tarjeta(self.frame_tarjetas, "AJUSTES", 0, T.SERIE_AJUSTES)
+
+        tarjetas = (
+            self.tarjeta_total, self.tarjeta_macro, self.tarjeta_manual, self.tarjeta_parciales,
+            self.tarjeta_finales, self.tarjeta_comisiones, self.tarjeta_ajustes,
+        )
+        for columna, tarjeta in enumerate(tarjetas):
+            self.frame_tarjetas.grid_columnconfigure(columna, weight=1, uniform="tarjetas")
+            tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0, 0 if columna == len(tarjetas) - 1 else 10), pady=8)
 
         self.frame_filtros = ctk.CTkFrame(
             self,
             corner_radius=18,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         self.frame_filtros.pack(fill="x", pady=(0, 12))
 
         self.lbl_estado = ctk.CTkLabel(
             self.frame_filtros,
             text="",
-            font=("Segoe UI", 12, "bold"),
-            text_color="#86efac",
+            font=T.ETIQUETA,
+            text_color=T.OK,
             anchor="w",
             justify="left"
         )
@@ -138,8 +141,8 @@ class PantallaControl(ctk.CTkFrame):
         ctk.CTkLabel(
             self.frame_filtros,
             text="Fecha",
-            font=("Segoe UI", 12, "bold"),
-            text_color="#e2e8f0"
+            font=T.ETIQUETA,
+            text_color=T.TEXTO_SUAVE
         ).grid(row=0, column=0, padx=(18, 8), pady=18, sticky="w")
 
         self.combo_fecha = ctk.CTkComboBox(
@@ -147,19 +150,23 @@ class PantallaControl(ctk.CTkFrame):
             values=["Todas"],
             width=180,
             command=self.filtrar_fecha,
-            border_color="#475569",
-            fg_color="#0f172a",
-            dropdown_fg_color="#0f172a",
-            dropdown_text_color="#e2e8f0"
+            border_color=T.BORDE_FUERTE,
+            fg_color=T.SUPERFICIE_HUNDIDA,
+            dropdown_fg_color=T.SUPERFICIE,
+            dropdown_text_color=T.TEXTO_SUAVE,
+            dropdown_hover_color=T.SUPERFICIE_ELEVADA,
+            button_color=T.BORDE_FUERTE,
+            button_hover_color=T.TEXTO_TENUE,
+            text_color=T.TEXTO
         )
         self.combo_fecha.set("Todas")
         self.combo_fecha.grid(row=0, column=1, padx=(0, 24), pady=18, sticky="w")
 
         ctk.CTkLabel(
             self.frame_filtros,
-            text="Tipo Documento",
-            font=("Segoe UI", 12, "bold"),
-            text_color="#e2e8f0"
+            text="Tipo de documento",
+            font=T.ETIQUETA,
+            text_color=T.TEXTO_SUAVE
         ).grid(row=0, column=2, padx=(0, 8), pady=18, sticky="w")
 
         self.combo_tipo = ctk.CTkComboBox(
@@ -167,10 +174,14 @@ class PantallaControl(ctk.CTkFrame):
             values=["TODOS", "PARCIALES", "FINALES", "COMISIONES", "AJUSTES"],
             width=220,
             command=self.filtrar_tipo,
-            border_color="#475569",
-            fg_color="#0f172a",
-            dropdown_fg_color="#0f172a",
-            dropdown_text_color="#e2e8f0"
+            border_color=T.BORDE_FUERTE,
+            fg_color=T.SUPERFICIE_HUNDIDA,
+            dropdown_fg_color=T.SUPERFICIE,
+            dropdown_text_color=T.TEXTO_SUAVE,
+            dropdown_hover_color=T.SUPERFICIE_ELEVADA,
+            button_color=T.BORDE_FUERTE,
+            button_hover_color=T.TEXTO_TENUE,
+            text_color=T.TEXTO
         )
         self.combo_tipo.set("TODOS")
         self.combo_tipo.grid(row=0, column=3, padx=(0, 18), pady=18, sticky="w")
@@ -178,9 +189,9 @@ class PantallaControl(ctk.CTkFrame):
         self.frame_tabla = ctk.CTkFrame(
             self,
             corner_radius=18,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         self.frame_tabla.pack(fill="both", expand=True, pady=(0, 10))
 
@@ -216,44 +227,35 @@ class PantallaControl(ctk.CTkFrame):
         self.tabla.bind("<Double-1>", lambda event: self.ver_detalle())
 
         self.frame_acciones = ctk.CTkFrame(self, fg_color="transparent")
-        self.frame_acciones.pack(pady=(8, 12))
+        self.frame_acciones.pack(side="bottom", pady=(8, 12), before=self.frame_tabla)
 
         self.btn_detalle = ctk.CTkButton(
             self.frame_acciones,
-            text="VER DETALLE",
+            text="Ver detalle",
             command=self.ver_detalle,
             width=190,
-            height=42,
-            corner_radius=12,
-            fg_color="#2563eb",
-            hover_color="#1d4ed8",
-            text_color="#ffffff",
-            font=("Segoe UI", 12, "bold")
+            height=T.ALTO_BOTON,
+            corner_radius=T.RADIO_BOTON,
+            fg_color=T.PRIMARIO,
+            hover_color=T.PRIMARIO_HOVER,
+            text_color=T.TEXTO_SOBRE_COLOR,
+            font=T.BOTON
         )
         self.btn_detalle.pack(side="left", padx=8)
 
         self.btn_marcar = ctk.CTkButton(
             self.frame_acciones,
-            text="MARCAR CONTROLADO",
+            text="Marcar controlado",
             command=self.toggle_controlado,
             width=220,
-            height=42,
-            corner_radius=12,
-            fg_color="#16a34a",
-            hover_color="#15803d",
-            text_color="#ffffff",
-            font=("Segoe UI", 12, "bold")
+            height=T.ALTO_BOTON,
+            corner_radius=T.RADIO_BOTON,
+            fg_color=T.EXITO,
+            hover_color=T.EXITO_HOVER,
+            text_color=T.TEXTO_SOBRE_COLOR,
+            font=T.BOTON
         )
         self.btn_marcar.pack(side="left", padx=8)
-
-        self.lbl_estado = ctk.CTkLabel(
-            self,
-            text="",
-            font=("Segoe UI", 12, "bold"),
-            text_color="#86efac",
-            anchor="w",
-            justify="left"
-        )
 
     def _aplicar_estilo_tabla(self):
 
@@ -265,42 +267,52 @@ class PantallaControl(ctk.CTkFrame):
 
         style.configure(
             "Treeview",
-            background="#0f172a",
-            foreground="#e2e8f0",
+            background=T.SUPERFICIE_HUNDIDA,
+            foreground=T.TEXTO_SUAVE,
             rowheight=28,
-            fieldbackground="#0f172a",
-            borderwidth=0
+            fieldbackground=T.SUPERFICIE_HUNDIDA,
+            borderwidth=0,
+            bordercolor=T.SUPERFICIE_HUNDIDA,
+            lightcolor=T.SUPERFICIE_HUNDIDA,
+            darkcolor=T.SUPERFICIE_HUNDIDA
         )
         style.map(
             "Treeview",
-            background=[("selected", "#2563eb")],
-            foreground=[("selected", "#ffffff")]
+            background=[("selected", T.PRIMARIO)],
+            foreground=[("selected", T.TEXTO_SOBRE_COLOR)]
         )
         style.configure(
             "Treeview.Heading",
-            background="#1e293b",
-            foreground="#f8fafc",
+            background=T.ENCABEZADO_TABLA,
+            foreground=T.TEXTO,
             relief="flat",
-            font=("Segoe UI", 10, "bold")
+            font=(T.FUENTE, 10, "bold")
         )
         style.map(
             "Treeview.Heading",
-            background=[("active", "#334155")]
+            background=[("active", T.BORDE)]
         )
 
-    def mostrar_estado(self, mensaje, color="#86efac"):
+        # Barras de desplazamiento al tono de la app (antes eran grises claras).
+        for orientacion in ("Vertical.TScrollbar", "Horizontal.TScrollbar"):
+            style.configure(
+                orientacion,
+                background=T.BORDE,
+                troughcolor=T.SUPERFICIE_HUNDIDA,
+                bordercolor=T.SUPERFICIE_HUNDIDA,
+                lightcolor=T.BORDE,
+                darkcolor=T.BORDE,
+                arrowcolor=T.TEXTO_SECUNDARIO,
+                relief="flat"
+            )
+            style.map(orientacion, background=[("active", T.BORDE_FUERTE)])
 
-        palette = {
-            "#86efac": "#052e16",
-            "#93c5fd": "#172554",
-            "#fca5a5": "#450a0a",
-            "#fbbf24": "#451a03",
-        }
+    def mostrar_estado(self, mensaje, color=T.OK):
 
         self.lbl_estado.configure(
             text=mensaje,
             text_color=color,
-            fg_color=palette.get(color, "#0f172a"),
+            fg_color=T.FONDO_DE_ESTADO.get(color, T.SUPERFICIE_HUNDIDA),
             corner_radius=10
         )
         self.lbl_estado.update_idletasks()
@@ -348,26 +360,42 @@ class PantallaControl(ctk.CTkFrame):
         tipo_actual = self.combo_tipo.get()
         self.aplicar_filtros(fecha_actual, tipo_actual)
 
-    def ver_detalle(self):
+    def seleccionar_documento(self, numero_doc):
+        """Selecciona y hace visible en la tabla la fila del documento indicado.
+        Devuelve True si la fila está en la tabla (puede no estarlo por los filtros)."""
+        numero_doc = str(numero_doc).strip()
+        for item_id in self.tabla.get_children():
+            valores = self.tabla.item(item_id, "values")
+            if valores and str(valores[0]).strip() == numero_doc:
+                self.tabla.selection_set(item_id)
+                self.tabla.focus(item_id)
+                self.tabla.see(item_id)
+                return True
+        return False
 
-        seleccion = self.tabla.selection()
+    def ver_detalle(self, numero_doc=None):
 
-        if not seleccion:
-            children = self.tabla.get_children()
-            if not children:
-                return
-            self.tabla.selection_set(children[0])
+        if numero_doc is None:
             seleccion = self.tabla.selection()
 
-        if not seleccion:
-            return
+            if not seleccion:
+                children = self.tabla.get_children()
+                if not children:
+                    return
+                self.tabla.selection_set(children[0])
+                seleccion = self.tabla.selection()
 
-        item = self.tabla.item(seleccion[0])
+            if not seleccion:
+                return
 
-        if not item or not item["values"]:
-            return
+            item = self.tabla.item(seleccion[0])
 
-        numero_doc = str(item["values"][0]).strip()
+            if not item or not item["values"]:
+                return
+
+            numero_doc = item["values"][0]
+
+        numero_doc = str(numero_doc).strip()
 
         detalle = self.df_original[
             self.df_original["Numero Doc"].astype(str).str.strip() == numero_doc
@@ -408,24 +436,49 @@ class PantallaControl(ctk.CTkFrame):
         corredor = obtener_valor(primer_fila, ["Nombre Corredor", "Corredor"], "-")
 
         ventana = ctk.CTkToplevel(self)
-        ventana.title("CONTROL - GLUCOVIL")
+        ventana.title(f"Liquidación {numero_doc} - Control Glucovil")
         ventana.geometry("1180x720")
         ventana.minsize(1000, 620)
-        ventana.configure(fg_color="#e2e8f0")
+        ventana.configure(fg_color=T.FONDO)
+        ventana.transient(self.winfo_toplevel())
         ventana.grab_set()
+        ventana.bind("<Escape>", lambda _event: ventana.destroy())
 
-        cabecera = ctk.CTkFrame(ventana, fg_color="#0b1120", height=80)
+        cabecera = ctk.CTkFrame(ventana, fg_color=T.SUPERFICIE, corner_radius=0)
         cabecera.pack(fill="x")
-        cabecera.pack_propagate(False)
 
         ctk.CTkLabel(
             cabecera,
-            text="CONTROL - GLUCOVIL",
-            font=("Segoe UI", 32, "bold"),
-            text_color="#2bbf9a"
-        ).place(x=18, y=18)
+            text="CONTROL · GLUCOVIL",
+            font=T.ETIQUETA_CHICA,
+            text_color=T.MARCA
+        ).pack(anchor="w", padx=24, pady=(16, 0))
 
-        contenido = ctk.CTkScrollableFrame(ventana, width=1140, height=640, fg_color="#e2e8f0")
+        fila_titulo = ctk.CTkFrame(cabecera, fg_color="transparent")
+        fila_titulo.pack(fill="x", padx=24, pady=(2, 16))
+
+        ctk.CTkLabel(
+            fila_titulo,
+            text=f"Liquidación {numero_doc}",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            fila_titulo,
+            text="Cerrar",
+            command=ventana.destroy,
+            width=120,
+            height=36,
+            corner_radius=T.RADIO_BOTON,
+            fg_color=T.SECUNDARIO, text_color=T.TEXTO_SOBRE_SECUNDARIO,
+            hover_color=T.SECUNDARIO_HOVER,
+            font=T.BOTON
+        ).pack(side="right")
+
+        ctk.CTkFrame(ventana, fg_color=T.BORDE, height=1, corner_radius=0).pack(fill="x")
+
+        contenido = ctk.CTkScrollableFrame(ventana, width=1140, height=640, fg_color=T.FONDO)
         contenido.pack(fill="both", expand=True, padx=18, pady=18)
 
         contenido.grid_columnconfigure(0, weight=1)
@@ -464,10 +517,10 @@ class PantallaControl(ctk.CTkFrame):
         for idx, (label, valor) in enumerate(info):
             fila = ctk.CTkFrame(
                 contenido,
-                fg_color="#f8fafc",
+                fg_color=T.SUPERFICIE,
                 corner_radius=12,
                 border_width=1,
-                border_color="#cbd5e1",
+                border_color=T.BORDE,
                 height=96
             )
             fila.grid(row=idx // 2, column=idx % 2, padx=12, pady=8, sticky="nsew")
@@ -476,9 +529,9 @@ class PantallaControl(ctk.CTkFrame):
 
             ctk.CTkLabel(
                 fila,
-                text=str(label),
-                font=("Segoe UI", 12, "bold"),
-                text_color="#475569",
+                text=str(label).rstrip(":"),
+                font=T.ETIQUETA_CHICA,
+                text_color=T.TEXTO_TENUE,
                 anchor="w",
                 justify="left"
             ).grid(row=0, column=0, sticky="w", padx=14, pady=(10, 0))
@@ -486,8 +539,8 @@ class PantallaControl(ctk.CTkFrame):
             ctk.CTkLabel(
                 fila,
                 text=str(valor),
-                font=("Segoe UI", 17, "bold"),
-                text_color="#0f172a",
+                font=(T.FUENTE, 16, "bold"),
+                text_color=T.TEXTO,
                 anchor="w",
                 justify="left",
                 wraplength=440
@@ -623,26 +676,26 @@ class PantallaControl(ctk.CTkFrame):
 
         retenciones_panel = ctk.CTkFrame(
             contenido,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=10,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         retenciones_panel.grid(row=100, column=0, columnspan=2, sticky="ew", padx=12, pady=(18, 12))
 
         ctk.CTkLabel(
             retenciones_panel,
-            text="Retenciones y Percepciones",
-            font=("Segoe UI", 15, "bold"),
-            text_color="#f8fafc"
+            text="Retenciones y percepciones",
+            font=T.SUBTITULO,
+            text_color=T.TEXTO
         ).pack(anchor="w", padx=14, pady=(12, 8))
 
         if not registros_tax:
             ctk.CTkLabel(
                 retenciones_panel,
                 text="La liquidación no posee retenciones ni percepciones.",
-                text_color="#cbd5e1",
-                font=("Segoe UI", 12)
+                text_color=T.TEXTO_SECUNDARIO,
+                font=T.CUERPO
             ).pack(anchor="w", padx=14, pady=(0, 12))
         else:
             tabla_tax = ttk.Treeview(
@@ -722,7 +775,7 @@ class PantallaControl(ctk.CTkFrame):
 
         self.combo_fecha.set("Todas")
         self.combo_tipo.set("TODOS")
-        self.mostrar_estado("Datos cargados correctamente y listos para visualizar.", "#86efac")
+        self.mostrar_estado("Datos cargados correctamente y listos para visualizar.", T.OK)
         self.aplicar_filtros("Todas", "TODOS")
 
     def cargar_tabla(self, df):
@@ -770,8 +823,8 @@ class PantallaControl(ctk.CTkFrame):
                 tags=(tag,)
             )
 
-        self.tabla.tag_configure("par", background="#0f172a")
-        self.tabla.tag_configure("impar", background="#111827")
+        self.tabla.tag_configure("par", background=T.SUPERFICIE_HUNDIDA)
+        self.tabla.tag_configure("impar", background=T.SUPERFICIE)
 
     def filtrar_fecha(self, fecha):
 
@@ -789,12 +842,12 @@ class PantallaControl(ctk.CTkFrame):
         df = self.df_original.copy()
 
         if df.empty:
-            self.mostrar_estado("No hay resultados para el filtro seleccionado.", "#fca5a5")
+            self.mostrar_estado("No hay resultados para el filtro seleccionado.", T.ERROR)
             self.cargar_tabla(df)
             return
 
         estado_tipo = tipo if tipo and tipo != "TODOS" else "todos"
-        self.mostrar_estado(f"Mostrando {len(df)} documentos para {estado_tipo}.", "#93c5fd")
+        self.mostrar_estado(f"Mostrando {len(df)} documentos para {estado_tipo}.", T.INFO)
 
         if "Fecha Pago" in df.columns:
             df["Fecha Pago"] = pd.to_datetime(df["Fecha Pago"], errors="coerce")

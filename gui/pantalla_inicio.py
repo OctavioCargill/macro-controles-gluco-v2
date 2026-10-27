@@ -2,11 +2,16 @@ import importlib.util
 import logging
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+
+from gui import tema as T
 import pandas as pd
 from tkinter import ttk
 
@@ -31,147 +36,141 @@ from services.procesar_control import ejecutar_control
 from gui.pantalla_control import PantallaControl
 
 
-class MenuPrincipal(ctk.CTkFrame):
+class TarjetaPaso(ctk.CTkFrame):
+    """Tarjeta clickeable de un paso del proceso (Cargar, Visualizar, Limpieza)."""
+
+    def __init__(self, master, numero, titulo, comando, etiqueta=None):
+        super().__init__(
+            master,
+            fg_color=T.SUPERFICIE,
+            corner_radius=16,
+            border_width=1,
+            border_color=T.BORDE,
+            height=210,
+        )
+        self.grid_propagate(False)
+        self.pack_propagate(False)
+        self.comando = comando
+        self._color_borde = T.BORDE
+
+        self.lbl_paso = ctk.CTkLabel(self, text=etiqueta or f"Paso {numero}", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_TENUE, anchor="w")
+        self.lbl_paso.pack(anchor="w", padx=20, pady=(20, 0))
+        self.lbl_titulo = ctk.CTkLabel(self, text=titulo, font=(T.FUENTE, 20, "bold"), text_color=T.TEXTO, anchor="w")
+        self.lbl_titulo.pack(anchor="w", padx=20, pady=(4, 6))
+        self.lbl_detalle = ctk.CTkLabel(
+            self, text="", font=T.CUERPO, text_color=T.TEXTO_SECUNDARIO, anchor="w", justify="left", wraplength=280
+        )
+        self.lbl_detalle.pack(anchor="w", padx=20)
+        self.lbl_accion = ctk.CTkLabel(self, text="", font=T.ETIQUETA, text_color=T.ENLACE, anchor="w")
+        self.lbl_accion.pack(side="bottom", anchor="w", padx=20, pady=(0, 18))
+
+        for widget in (self, self.lbl_paso, self.lbl_titulo, self.lbl_detalle, self.lbl_accion):
+            widget.bind("<Button-1>", lambda _event: self.comando())
+            widget.bind("<Enter>", lambda _event: self.configure(border_color=T.BORDE_FUERTE if self._color_borde == T.BORDE else self._color_borde, fg_color=T.SUPERFICIE_ELEVADA))
+            widget.bind("<Leave>", lambda _event: self.configure(border_color=self._color_borde, fg_color=T.SUPERFICIE))
+            widget.configure(cursor="hand2")
+
+    def mostrar(self, estado, detalle, accion):
+        """estado: 'siguiente' (resaltado), 'hecho', 'disponible' o 'bloqueado'."""
+        colores = {
+            "siguiente": (T.PRIMARIO, T.MARCA, T.TEXTO, T.TEXTO_SECUNDARIO, 2),
+            "hecho": (T.BORDE, T.OK, T.TEXTO, T.TEXTO_SECUNDARIO, 1),
+            "disponible": (T.BORDE, T.TEXTO_TENUE, T.TEXTO, T.TEXTO_SECUNDARIO, 1),
+            "bloqueado": (T.BORDE, T.TEXTO_TENUE, T.TEXTO_TENUE, T.TEXTO_TENUE, 1),
+            "pronto": (T.BORDE, T.TEXTO_TENUE, T.TEXTO, T.TEXTO_SECUNDARIO, 1),
+        }
+        borde, color_paso, color_titulo, color_detalle, grosor = colores[estado]
+        self._color_borde = borde
+        self.configure(border_color=borde, border_width=grosor)
+        texto_paso = self.lbl_paso.cget("text").split(" ✓")[0]
+        self.lbl_paso.configure(text=texto_paso + (" ✓" if estado == "hecho" else ""), text_color=color_paso)
+        self.lbl_titulo.configure(text_color=color_titulo)
+        self.lbl_detalle.configure(text=detalle, text_color=color_detalle)
+        self.lbl_accion.configure(text=accion, text_color=T.TEXTO_TENUE if estado in ("bloqueado", "pronto") else T.ENLACE)
+
+
+class MenuControlar(ctk.CTkFrame):
 
     def __init__(self, master):
 
         super().__init__(master)
         self.master = master
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
         self.pack(fill="both", expand=True, padx=30, pady=30)
 
-        titulo = ctk.CTkLabel(
-            self,
-            text=APP_NAME,
-            font=("Segoe UI", 30, "bold"),
-            text_color="#f8fafc"
-        )
-        titulo.pack(pady=(30, 12))
+        contenido = ctk.CTkFrame(self, fg_color="transparent")
+        contenido.pack(fill="both", expand=True, padx=40, pady=(10, 0))
 
-        self.lbl_version = ctk.CTkLabel(
-            self,
-            text=f"Versión {APP_VERSION}",
-            font=("Segoe UI", 12, "bold"),
-            text_color="#93c5fd"
-        )
-        self.lbl_version.pack(pady=(0, 18))
+        # --- Cabecera
+        ctk.CTkLabel(contenido, text="CONTROL · GLUCOVIL", font=T.ETIQUETA_CHICA, text_color=T.MARCA).pack(anchor="w")
+        ctk.CTkLabel(contenido, text="Controlar liquidaciones", font=(T.FUENTE, 30, "bold"), text_color=T.TEXTO).pack(anchor="w")
 
-        panel = ctk.CTkFrame(
-            self,
-            fg_color="#111827",
-            corner_radius=22,
-            border_width=1,
-            border_color="#334155"
-        )
-        panel.pack(fill="both", expand=True, padx=80, pady=(0, 30))
+        # --- Proceso: los tres pasos principales
+        ctk.CTkLabel(contenido, text="Proceso de control", font=T.SUBTITULO, text_color=T.TEXTO).pack(anchor="w", pady=(32, 12))
 
-        opciones = [
-            ("MÉTRICAS GENERALES", self.master.mostrar_pantalla_metrica),
-            ("BUSCADOR GLOBAL", self.master.mostrar_pantalla_busqueda),
-            ("CARGAR BASES", self.master.mostrar_pantalla_carga),
-            ("VISUALIZAR LIQUIDACIONES", self.master.mostrar_pantalla_visualizacion),
-            ("LIMPIEZA DE LIQUIDACIONES CONTROLADAS", self.master.mostrar_pantalla_limpieza),
-            ("PRUEBAS DE INTEGRIDAD", self.master.ejecutar_prueba_integridad),
-            ("ACERCA DE", self.master.mostrar_acerca_de),
-            ("SALIR", self.master.cerrar_aplicacion),
-        ]
+        pasos = ctk.CTkFrame(contenido, fg_color="transparent")
+        pasos.pack(fill="x")
+        for columna in range(3):
+            pasos.grid_columnconfigure(columna, weight=1, uniform="pasos")
 
-        for texto, comando in opciones:
-            btn = ctk.CTkButton(
-                panel,
+        self.paso_carga = TarjetaPaso(pasos, 1, "Cargar bases", self.master.mostrar_pantalla_carga)
+        self.paso_visualizar = TarjetaPaso(pasos, 2, "Visualizar liquidaciones", self.master.mostrar_pantalla_visualizacion)
+        self.paso_limpieza = TarjetaPaso(pasos, 3, "Limpieza de controladas", self.master.mostrar_pantalla_limpieza)
+        for columna, tarjeta in enumerate((self.paso_carga, self.paso_visualizar, self.paso_limpieza)):
+            tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0 if columna == 0 else 8, 0 if columna == 2 else 8))
+
+        # --- Pie anclado abajo: herramientas (segunda prioridad) y salir
+        pie = ctk.CTkFrame(contenido, fg_color="transparent")
+        pie.pack(side="bottom", fill="x", pady=(0, 10))
+        tk.Frame(contenido, bg=T.BORDE, height=1).pack(side="bottom", fill="x", pady=(0, 16))
+
+        ctk.CTkLabel(pie, text="Herramientas", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_TENUE).pack(side="left", padx=(0, 12))
+        for texto, comando in (
+            ("Buscador global", self.master.mostrar_pantalla_busqueda),
+            ("Métricas generales", self.master.mostrar_pantalla_metrica),
+            ("Pruebas de integridad", self.master.ejecutar_prueba_integridad),
+        ):
+            ctk.CTkButton(
+                pie,
                 text=texto,
                 command=comando,
-                height=56,
-                width=420,
-                corner_radius=12,
-                fg_color="#1f2937",
-                hover_color="#334155",
-                text_color="#f8fafc",
-                font=("Segoe UI", 16, "bold")
-            )
-            btn.pack(pady=12)
+                width=150,
+                height=34,
+                corner_radius=T.RADIO_BOTON,
+                fg_color="transparent",
+                hover_color=T.SUPERFICIE_ELEVADA,
+                border_width=1,
+                border_color=T.BORDE,
+                text_color=T.TEXTO_SECUNDARIO,
+                font=T.ETIQUETA_CHICA,
+            ).pack(side="left", padx=(0, 8))
 
-    def actualizar_metrica(self):
-        if hasattr(self.master, "df_procesado") and self.master.df_procesado is not None:
-            metrics = metricas_generales(self.master.df_procesado, getattr(self.master, "resumen", {}))
-        else:
-            metrics = {
-                "total_liquidaciones_detectadas": 0,
-                "total_liquidaciones_procesadas": 0,
-                "total_liquidaciones_aprobadas": 0,
-                "total_liquidaciones_observadas": 0,
-                "total_documentos_controlados": 0,
-                "total_documentos_pendientes": 0,
-                "total_documentos_historizados": 0,
-                "cantidad_errores_detectados": 0,
-                "ultima_ejecucion": getattr(self.master, "ultima_ejecucion", "No ejecutado"),
-            }
+        self.actualizar_estado()
 
-        for clave, label in self.metric_labels.items():
-            valor = metrics.get(clave, 0)
-            if clave == "ultima_ejecucion":
-                texto = str(valor)
-            elif isinstance(valor, float):
-                texto = f"{valor:,.2f}"
-            else:
-                texto = str(valor)
-            label.configure(text=texto)
-
-        if hasattr(self.master, "diagnostico"):
-            estado = self.master.diagnostico.get("hay_errores", False)
-            if estado:
-                self.lbl_version.configure(text=f"Versión {APP_VERSION} • requiere revisión")
-            else:
-                self.lbl_version.configure(text=f"Versión {APP_VERSION} • OK")
-
-    def buscar_global(self):
+    def actualizar_estado(self):
+        """Refleja en las tarjetas en qué punto del proceso está el usuario."""
         df = getattr(self.master, "df_procesado", None)
-        if df is None or df.empty:
-            self.tabla_busqueda.delete(*self.tabla_busqueda.get_children())
-            self.tabla_busqueda.insert("", "end", values=("Sin datos", "-", "-", "-", "-", "-"))
+        if df is None:
+            self.paso_carga.mostrar("siguiente", "Reportes SAP 044, 090 y 077. Se buscan en la carpeta data o se cargan a mano.", "Empezar →")
+            self.paso_visualizar.mostrar("bloqueado", "Revisá cada liquidación y marcá las que ya controlaste.", "Primero procesá las bases")
+            self.paso_limpieza.mostrar("bloqueado", "Pasá las liquidaciones controladas al histórico.", "Primero procesá las bases")
             return
 
-        texto = self.buscar_entry.get()
-        resultados = df.copy()
-        if texto and texto.strip():
-            cols = [c for c in ["Numero Doc", "Contrato", "Nro. Legal", "Nro_Legal", "Descripcion de la liquidacion", "Tipo Doc", "Proveedor", "Nombre Beneficiario del Pago", "Numero de CAE COE Factura"] if c in resultados.columns]
-            mascara = pd.Series(False, index=resultados.index)
-            query = texto.strip().lower()
-            for col in cols:
-                mascara = mascara | resultados[col].fillna("").astype(str).str.lower().str.contains(query, na=False)
-            resultados = resultados.loc[mascara].head(20)
+        total = int(getattr(self.master, "resumen", {}).get("total", 0) or 0)
+        documentos = df["Numero Doc"].nunique() if "Numero Doc" in df.columns else len(df)
+        if "CONTROLADO" in df.columns and "Numero Doc" in df.columns:
+            controlados = df.loc[df["CONTROLADO"].fillna(False).astype(bool), "Numero Doc"].nunique()
+        else:
+            controlados = 0
 
-        self.tabla_busqueda.delete(*self.tabla_busqueda.get_children())
-        if resultados.empty:
-            self.tabla_busqueda.insert("", "end", values=("Sin coincidencias", "-", "-", "-", "-", "-"))
-            return
-
-        for _, fila in resultados.iterrows():
-            numero_doc = str(fila.get("Numero Doc", ""))
-            contrato = str(fila.get("Contrato", ""))
-            tipo = str(fila.get("Descripcion de la liquidacion", fila.get("Tipo Doc", "")))
-            fecha = ""
-            if "Fecha Pago" in fila and pd.notna(fila.get("Fecha Pago")):
-                fecha = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
-            estado = str(fila.get("RESULTADO_FINAL", "-"))
-            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado))
-
-    def abrir_detalle_busqueda(self, event=None):
-        seleccion = self.tabla_busqueda.selection()
-        if not seleccion:
-            return
-        item = self.tabla_busqueda.item(seleccion[0], "values")
-        documento = item[0]
-        if documento in ("Sin datos", "Sin coincidencias"):
-            return
-
-        self.master.mostrar_pantalla("visualizacion")
-        visual = self.master.frames["visualizacion"]
-        if visual.df_original is not None and not visual.df_original.empty:
-            filtro = visual.df_original["Numero Doc"].astype(str) == str(documento)
-            if filtro.any():
-                visual.tabla.selection_set(visual.tabla.get_children()[int(filtro.iloc[:len(visual.tabla.get_children())].sum()) - 1])
-                visual.ver_detalle()
+        hora = str(getattr(self.master, "ultima_ejecucion", ""))[-8:-3]
+        self.paso_carga.mostrar("hecho", f"Procesado a las {hora}: {total} registros.", "Volver a procesar")
+        if controlados:
+            self.paso_visualizar.mostrar("disponible", f"{documentos} documentos · {controlados} marcados como controlados.", "Seguir revisando →")
+            self.paso_limpieza.mostrar("siguiente", f"{controlados} documentos listos para pasar al histórico.", "Pasar al histórico →")
+        else:
+            self.paso_visualizar.mostrar("siguiente", f"{documentos} documentos para revisar.", "Revisar →")
+            self.paso_limpieza.mostrar("disponible", "Todavía no marcaste documentos como controlados.", "Abrir")
 
 
 class PantallaMetricas(ctk.CTkFrame):
@@ -179,7 +178,7 @@ class PantallaMetricas(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.master = master
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
         self.pack(fill="both", expand=True, padx=30, pady=30)
         self.metric_labels = {}
         self.crear_interfaz()
@@ -187,18 +186,18 @@ class PantallaMetricas(ctk.CTkFrame):
     def crear_interfaz(self):
         titulo = ctk.CTkLabel(
             self,
-            text="Métricas Generales",
-            font=("Segoe UI", 28, "bold"),
-            text_color="#f8fafc"
+            text="Métricas generales",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
         )
         titulo.pack(anchor="w", padx=18, pady=(18, 18))
 
         self.frame_metricas = ctk.CTkFrame(
             self,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=18,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         self.frame_metricas.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
@@ -218,10 +217,10 @@ class PantallaMetricas(ctk.CTkFrame):
         ]
 
         for idx, (titulo_metric, clave) in enumerate(metrics):
-            frame = ctk.CTkFrame(self.metricas_grid, fg_color="#0f172a", corner_radius=12, border_width=1, border_color="#334155")
+            frame = ctk.CTkFrame(self.metricas_grid, fg_color=T.SUPERFICIE_HUNDIDA, corner_radius=12, border_width=1, border_color=T.BORDE)
             frame.grid(row=idx // 3, column=idx % 3, padx=8, pady=8, sticky="nsew")
-            ctk.CTkLabel(frame, text=titulo_metric, font=("Segoe UI", 11, "bold"), text_color="#cbd5e1").pack(anchor="w", padx=12, pady=(10, 2))
-            label = ctk.CTkLabel(frame, text="0", font=("Segoe UI", 20, "bold"), text_color="#86efac")
+            ctk.CTkLabel(frame, text=titulo_metric, font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(anchor="w", padx=12, pady=(10, 2))
+            label = ctk.CTkLabel(frame, text="0", font=T.VALOR_DESTACADO, text_color=T.OK)
             label.pack(anchor="w", padx=12, pady=(0, 10))
             self.metric_labels[clave] = label
 
@@ -229,19 +228,6 @@ class PantallaMetricas(ctk.CTkFrame):
         self.metricas_grid.grid_columnconfigure(1, weight=1)
         self.metricas_grid.grid_columnconfigure(2, weight=1)
 
-        acciones = ctk.CTkFrame(self, fg_color="transparent")
-        acciones.pack(fill="x", padx=18, pady=(0, 10))
-        btn_volver = ctk.CTkButton(
-            acciones,
-            text="VOLVER AL MENÚ PRINCIPAL",
-            command=self.volver_al_menu,
-            width=260,
-            height=46,
-            fg_color="#334155",
-            hover_color="#475569",
-            font=("Segoe UI", 12, "bold")
-        )
-        btn_volver.pack(side="left")
 
         self.actualizar_metricas()
 
@@ -257,7 +243,7 @@ class PantallaMetricas(ctk.CTkFrame):
             label.configure(text=texto)
 
     def volver_al_menu(self):
-        self.master.mostrar_pantalla("menu")
+        self.master.volver()
 
 
 class PantallaBusqueda(ctk.CTkFrame):
@@ -265,25 +251,25 @@ class PantallaBusqueda(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.master = master
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
         self.pack(fill="both", expand=True, padx=30, pady=30)
         self.crear_interfaz()
 
     def crear_interfaz(self):
         titulo = ctk.CTkLabel(
             self,
-            text="Buscador Global",
-            font=("Segoe UI", 28, "bold"),
-            text_color="#f8fafc"
+            text="Buscador global",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
         )
         titulo.pack(anchor="w", padx=18, pady=(18, 18))
 
         self.frame_busqueda = ctk.CTkFrame(
             self,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=18,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         self.frame_busqueda.pack(fill="x", padx=18, pady=(0, 18))
 
@@ -295,24 +281,25 @@ class PantallaBusqueda(ctk.CTkFrame):
             placeholder_text="Buscar por número, contrato, proveedor, tipo de liquidación...",
             width=500,
             height=38,
-            fg_color="#0f172a",
-            border_color="#475569"
+            fg_color=T.SUPERFICIE_HUNDIDA,
+            border_color=T.BORDE_FUERTE
         )
         self.buscar_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.buscar_entry.bind("<Return>", lambda _event: self.actualizar_resultados())
 
         btn_buscar = ctk.CTkButton(
             fila_busqueda,
-            text="BUSCAR",
+            text="Buscar",
             command=self.actualizar_resultados,
             width=150,
             height=38,
-            fg_color="#2563eb",
-            hover_color="#1d4ed8",
-            font=("Segoe UI", 12, "bold")
+            fg_color=T.PRIMARIO,
+            hover_color=T.PRIMARIO_HOVER,
+            font=T.BOTON
         )
         btn_buscar.pack(side="left")
 
-        self.frame_resultados = ctk.CTkFrame(self, fg_color="#111827", corner_radius=18, border_width=1, border_color="#334155")
+        self.frame_resultados = ctk.CTkFrame(self, fg_color=T.SUPERFICIE, corner_radius=18, border_width=1, border_color=T.BORDE)
         self.frame_resultados.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
         columnas = ("Documento", "Contrato", "Tipo", "Fecha", "Estado", "Acción")
@@ -328,20 +315,9 @@ class PantallaBusqueda(ctk.CTkFrame):
             self.tabla_busqueda.column(columna, anchor="center", width=170)
 
         self.tabla_busqueda.pack(fill="both", expand=True, padx=12, pady=12)
+        self.tabla_busqueda.bind("<Double-1>", self.abrir_detalle)
+        self.tabla_busqueda.bind("<Return>", self.abrir_detalle)
 
-        acciones = ctk.CTkFrame(self, fg_color="transparent")
-        acciones.pack(fill="x", padx=18, pady=(0, 10))
-        btn_volver = ctk.CTkButton(
-            acciones,
-            text="VOLVER AL MENÚ PRINCIPAL",
-            command=self.volver_al_menu,
-            width=260,
-            height=46,
-            fg_color="#334155",
-            hover_color="#475569",
-            font=("Segoe UI", 12, "bold")
-        )
-        btn_volver.pack(side="left")
 
         self.actualizar_resultados()
 
@@ -375,10 +351,27 @@ class PantallaBusqueda(ctk.CTkFrame):
             if "Fecha Pago" in fila and pd.notna(fila.get("Fecha Pago")):
                 fecha = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
             estado = str(fila.get("RESULTADO_FINAL", "-"))
-            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado))
+            self.tabla_busqueda.insert("", "end", values=(numero_doc, contrato, tipo, fecha, estado, "Doble clic para ver ›"))
+
+    def abrir_detalle(self, event=None):
+        seleccion = self.tabla_busqueda.selection()
+        if not seleccion:
+            return
+        valores = self.tabla_busqueda.item(seleccion[0], "values")
+        if not valores:
+            return
+        documento = str(valores[0]).strip()
+        if documento in ("Sin datos", "Sin coincidencias", ""):
+            return
+
+        # Al entrar a Visualizar se restablecen los filtros, así el documento queda a la vista.
+        self.master.mostrar_pantalla("visualizacion")
+        visual = self.master.frames["visualizacion"]
+        visual.seleccionar_documento(documento)
+        visual.ver_detalle(numero_doc=documento)
 
     def volver_al_menu(self):
-        self.master.mostrar_pantalla("menu")
+        self.master.volver()
 
 
 class PantallaCargaDatos(ctk.CTkFrame):
@@ -391,7 +384,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
         self.archivo_090 = ""
         self.archivo_077 = ""
 
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
         self.pack(fill="both", expand=True, padx=30, pady=30)
 
         self.crear_interfaz()
@@ -400,26 +393,26 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
         titulo = ctk.CTkLabel(
             self,
-            text="CARGA DE DATOS",
-            font=("Segoe UI", 28, "bold"),
-            text_color="#f8fafc"
+            text="Carga de datos",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
         )
         titulo.pack(anchor="w", padx=18, pady=(20, 20))
 
         self.frame_validacion = ctk.CTkFrame(
             self,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=18,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
-        self.frame_validacion.pack(fill="x", padx=20, pady=(0, 12))
+        self.frame_validacion.pack(fill="both", expand=True, padx=20, pady=(0, 12))
 
         ctk.CTkLabel(
             self.frame_validacion,
             text="Validación de archivos y recursos",
-            font=("Segoe UI", 14, "bold"),
-            text_color="#f8fafc"
+            font=T.SUBTITULO,
+            text_color=T.TEXTO
         ).pack(anchor="w", padx=18, pady=(18, 6))
 
         self.validacion_grid = ctk.CTkScrollableFrame(self.frame_validacion, fg_color="transparent", height=220)
@@ -430,84 +423,77 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
         panel = ctk.CTkFrame(
             self,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=18,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
-        panel.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        panel.pack(fill="x", padx=20, pady=(0, 10))
 
-        self.lbl_044 = ctk.CTkLabel(panel, text="044 no seleccionado", anchor="w", justify="left")
-        self.lbl_044.pack(anchor="w", padx=24, pady=(24, 6))
-        btn_044 = ctk.CTkButton(panel, text="Cargar manual 044", command=self.seleccionar_044, width=220, height=42)
-        btn_044.pack(anchor="w", padx=24, pady=(0, 12))
+        # Los tres reportes van lado a lado (antes estaban apilados y no entraban en 800 px de alto).
+        for columna in range(3):
+            panel.grid_columnconfigure(columna, weight=1, uniform="reportes")
 
-        self.lbl_090 = ctk.CTkLabel(panel, text="090 no seleccionado", anchor="w", justify="left")
-        self.lbl_090.pack(anchor="w", padx=24, pady=(8, 6))
-        btn_090 = ctk.CTkButton(panel, text="Cargar manual 090", command=self.seleccionar_090, width=220, height=42)
-        btn_090.pack(anchor="w", padx=24, pady=(0, 12))
-
-        self.lbl_077 = ctk.CTkLabel(panel, text="077 no seleccionado", anchor="w", justify="left")
-        self.lbl_077.pack(anchor="w", padx=24, pady=(8, 6))
-        btn_077 = ctk.CTkButton(panel, text="Cargar manual 077", command=self.seleccionar_077, width=220, height=42)
-        btn_077.pack(anchor="w", padx=24, pady=(0, 20))
+        for columna, (prefijo, comando) in enumerate((
+            ("044", self.seleccionar_044),
+            ("090", self.seleccionar_090),
+            ("077", self.seleccionar_077),
+        )):
+            etiqueta = ctk.CTkLabel(
+                panel, text=f"{prefijo} no seleccionado", anchor="w", justify="left", wraplength=320
+            )
+            etiqueta.grid(row=0, column=columna, sticky="nw", padx=24, pady=(20, 6))
+            boton = ctk.CTkButton(panel, text=f"Cargar manual {prefijo}", command=comando, width=220, height=T.ALTO_BOTON,
+                                  corner_radius=T.RADIO_BOTON, font=T.BOTON,
+                                  fg_color=T.SECUNDARIO, text_color=T.TEXTO_SOBRE_SECUNDARIO, hover_color=T.SECUNDARIO_HOVER)
+            boton.grid(row=1, column=columna, sticky="w", padx=24, pady=(0, 20))
+            setattr(self, f"lbl_{prefijo}", etiqueta)
+            setattr(self, f"btn_{prefijo}", boton)
 
         acciones = ctk.CTkFrame(self, fg_color="transparent")
         acciones.pack(fill="x", padx=20, pady=(10, 20))
 
         self.btn_procesar = ctk.CTkButton(
             acciones,
-            text="PROCESAR",
+            text="Procesar",
             command=self.procesar,
             width=220,
-            height=48,
-            fg_color="#2563eb",
-            hover_color="#1d4ed8",
-            font=("Segoe UI", 14, "bold")
+            height=T.ALTO_BOTON,
+            fg_color=T.PRIMARIO,
+            hover_color=T.PRIMARIO_HOVER,
+            font=T.BOTON
         )
         self.btn_procesar.pack(side="left", padx=(0, 12))
 
-        btn_acerca_de = ctk.CTkButton(
-            acciones,
-            text="ACERCA DE",
-            command=self.master.mostrar_acerca_de,
-            width=180,
-            height=48,
-            fg_color="#1d4ed8",
-            hover_color="#1e40af",
-            font=("Segoe UI", 14, "bold")
-        )
-        btn_acerca_de.pack(side="left", padx=(0, 12))
 
-        btn_volver = ctk.CTkButton(
-            acciones,
-            text="VOLVER AL MENÚ PRINCIPAL",
-            command=self.volver_al_menu,
-            width=260,
-            height=48,
-            fg_color="#334155",
-            hover_color="#475569",
-            font=("Segoe UI", 14, "bold")
-        )
-        btn_volver.pack(side="left")
-
-        self.estado = ctk.CTkLabel(self, text="", text_color="#86efac", font=("Segoe UI", 12, "bold"))
+        self.estado = ctk.CTkLabel(self, text="", text_color=T.OK, font=T.ETIQUETA)
         self.estado.pack(anchor="w", padx=20, pady=(0, 10))
+
+        # Barra de progreso: solo visible mientras se procesa.
+        self.barra_progreso = ctk.CTkProgressBar(self, mode="indeterminate", height=8, progress_color=T.EN_CURSO)
+        self._procesando = False
 
         self.frame_log = ctk.CTkFrame(
             self,
-            fg_color="#0f172a",
+            fg_color=T.SUPERFICIE_HUNDIDA,
             corner_radius=14,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
         self.frame_log.pack(fill="x", padx=20, pady=(0, 10))
 
-        lbl_log = ctk.CTkLabel(self.frame_log, text="ACTIVIDAD", font=("Segoe UI", 12, "bold"), text_color="#cbd5e1")
+        lbl_log = ctk.CTkLabel(self.frame_log, text="Actividad", font=T.ETIQUETA, text_color=T.TEXTO_SECUNDARIO)
         lbl_log.pack(anchor="w", padx=12, pady=(12, 0))
 
-        self.log = ctk.CTkTextbox(self.frame_log, height=6, state="disabled", wrap="word")
+        self.log = ctk.CTkTextbox(self.frame_log, height=6, state="disabled", wrap="word", fg_color=T.SUPERFICIE_HUNDIDA, text_color=T.TEXTO_SUAVE)
         self.log.pack(fill="x", padx=12, pady=(6, 12))
+
+        # Los botones, el mensaje de estado y la actividad se anclan abajo y se reservan
+        # primero su lugar: si la ventana es baja, se achica el panel de archivos en vez
+        # de quedar estos elementos fuera de la vista (pasaba en 1200x800 y notebooks).
+        self.frame_log.pack_configure(side="bottom", before=self.frame_validacion)
+        self.estado.pack_configure(side="bottom", before=self.frame_validacion)
+        acciones.pack_configure(side="bottom", before=self.frame_validacion)
 
         self._cargar_todas_archivos_automaticos()
 
@@ -524,23 +510,23 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
         recursos = validar_archivos_requeridos(APP_ROOT)
         for idx, recurso in enumerate(recursos):
-            fila = ctk.CTkFrame(self.validacion_grid, fg_color="#0f172a", corner_radius=10, border_width=1, border_color="#334155")
+            fila = ctk.CTkFrame(self.validacion_grid, fg_color=T.SUPERFICIE_HUNDIDA, corner_radius=10, border_width=1, border_color=T.BORDE)
             fila.grid(row=idx, column=0, sticky="ew", padx=0, pady=6)
             fila.grid_columnconfigure(0, weight=0)
             fila.grid_columnconfigure(1, weight=1)
 
             estado = self._icono_estado(recurso["estado"])
-            ctk.CTkLabel(fila, text=f"{estado} {recurso['nombre']}", font=("Segoe UI", 11, "bold"), text_color="#f8fafc").grid(row=0, column=0, sticky="w", padx=(10, 8), pady=(8, 2))
-            ctk.CTkLabel(fila, text=recurso["ruta"], font=("Segoe UI", 10), text_color="#cbd5e1", wraplength=900, justify="left").grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
-            ctk.CTkLabel(fila, text=f"Estado: {recurso['estado']} | Tamaño: {recurso['size']} | Modificado: {recurso['modificado']}", font=("Segoe UI", 9), text_color="#93c5fd").grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 8))
+            ctk.CTkLabel(fila, text=f"{estado} {recurso['nombre']}", font=T.ETIQUETA_CHICA, text_color=T.TEXTO).grid(row=0, column=0, sticky="w", padx=(10, 8), pady=(8, 2))
+            ctk.CTkLabel(fila, text=recurso["ruta"], font=T.NOTA, text_color=T.TEXTO_SECUNDARIO, wraplength=900, justify="left").grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+            ctk.CTkLabel(fila, text=f"Estado: {recurso['estado']} | Tamaño: {recurso['size']} | Modificado: {recurso['modificado']}", font=T.NOTA, text_color=T.INFO).grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 8))
             self.validacion_rows[recurso["nombre"]] = fila
 
         faltantes = [recurso for recurso in recursos if recurso["estado"] == "FALTANTE"]
         if hasattr(self, "estado"):
             if faltantes:
-                self.estado.configure(text="Hay recursos requeridos faltantes. El procesamiento queda bloqueado.", text_color="#fca5a5")
+                self.estado.configure(text="Hay recursos requeridos faltantes. El procesamiento queda bloqueado.", text_color=T.ERROR)
             else:
-                self.estado.configure(text="Validación OK: todos los recursos requeridos fueron localizados.", text_color="#86efac")
+                self.estado.configure(text="Validación OK: todos los recursos requeridos fueron localizados.", text_color=T.OK)
 
     def _agregar_log(self, mensaje):
         if hasattr(self, "log"):
@@ -554,12 +540,12 @@ class PantallaCargaDatos(ctk.CTkFrame):
         return APP_DATA_PATH
 
     def _mostrar_advertencia(self, titulo, mensaje):
-        self.estado.configure(text=mensaje, text_color="#fbbf24")
+        self.estado.configure(text=mensaje, text_color=T.AVISO)
         self._agregar_log(f"Advertencia: {titulo} - {mensaje}")
         messagebox.showwarning(titulo, mensaje)
 
     def _mostrar_error(self, titulo, mensaje, exc=None):
-        self.estado.configure(text=mensaje, text_color="#fca5a5")
+        self.estado.configure(text=mensaje, text_color=T.ERROR)
         self._agregar_log(f"Error: {titulo} - {mensaje}")
         if exc is not None:
             logging.getLogger(__name__).exception(mensaje)
@@ -638,7 +624,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
         label.configure(text=str(path))
         self.estado.configure(
             text=f"Base {prefijo} cargada manualmente y lista para procesar.",
-            text_color="#86efac"
+            text_color=T.OK
         )
         self._agregar_log(f"Base {prefijo} cargada manualmente: {path}")
         self.update_idletasks()
@@ -663,7 +649,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
         if faltantes:
             self.estado.configure(
                 text=f"Faltan bases: {', '.join(faltantes)}. Verifique la carpeta /data.",
-                text_color="#fca5a5"
+                text_color=T.ERROR
             )
             self._agregar_log(
                 f"Estado: faltan bases para continuar: {', '.join(faltantes)}. Deben estar en /data."
@@ -672,7 +658,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
             bases = "044, 090, 077"
             self.estado.configure(
                 text=f"Bases cargadas correctamente y listas para procesar: {bases}.",
-                text_color="#86efac"
+                text_color=T.OK
             )
             self._agregar_log(
                 f"Estado: bases cargadas y listas para procesar: {bases}."
@@ -681,7 +667,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
         return not faltantes
 
     def volver_al_menu(self):
-        self.master.mostrar_pantalla("menu")
+        self.master.volver()
 
     def seleccionar_044(self):
         self._cargar_archivo_manual("044", "archivo_044", self.lbl_044)
@@ -693,6 +679,9 @@ class PantallaCargaDatos(ctk.CTkFrame):
         self._cargar_archivo_manual("077", "archivo_077", self.lbl_077)
 
     def procesar(self):
+        if self._procesando:
+            return
+
         self.actualizar_validacion_archivos()
         recursos = validar_archivos_requeridos(APP_ROOT)
         faltantes = [recurso["nombre"] for recurso in recursos if recurso["estado"] == "FALTANTE"]
@@ -722,21 +711,75 @@ class PantallaCargaDatos(ctk.CTkFrame):
             )
             return
 
-        self.btn_procesar.configure(
-            state="disabled",
-            text="PROCESANDO...",
-            fg_color="#f59e0b",
-            hover_color="#d97706"
-        )
-        self.estado.configure(
-            text="Las bases están cargadas y se está ejecutando la macro...",
-            text_color="#f8fafc"
-        )
+        self._set_procesando(True)
         self._agregar_log("Bases cargadas correctamente. Inicio de procesamiento de la macro.")
-        self.update_idletasks()
 
+        # El cálculo corre en un hilo aparte para que la ventana siga respondiendo.
+        # El hilo NO toca la interfaz: solo deja el resultado en self._resultado_hilo,
+        # y _revisar_proceso (que corre en el hilo de la ventana) lo levanta.
+        self._resultado_hilo = None
+        self._inicio_proceso = time.monotonic()
+        archivo_044, archivo_090 = self.archivo_044, self.archivo_090
+
+        def tarea():
+            try:
+                self._resultado_hilo = ("ok", ejecutar_control(archivo_044, archivo_090))
+            except Exception as exc:  # se reporta en el hilo principal
+                self._resultado_hilo = ("error", exc)
+
+        threading.Thread(target=tarea, daemon=True).start()
+        self.after(200, self._revisar_proceso)
+
+    def _set_procesando(self, activo):
+        self._procesando = activo
+        estado_botones = "disabled" if activo else "normal"
+        for boton in (self.btn_044, self.btn_090, self.btn_077):
+            boton.configure(state=estado_botones)
+        # Mientras procesa no se puede salir de la pantalla (no se cambia de base a mitad del proceso).
+        self.master.bloquear_navegacion(activo)
+
+        if activo:
+            self.btn_procesar.configure(
+                state="disabled",
+                text="Procesando…",
+                fg_color=T.EN_CURSO,
+                hover_color=T.EN_CURSO_HOVER
+            )
+            self.estado.configure(
+                text="Ejecutando la macro… la ventana sigue disponible mientras tanto.",
+                text_color=T.TEXTO
+            )
+            self.barra_progreso.pack(side="bottom", fill="x", padx=20, pady=(0, 10), before=self.estado)
+            self.barra_progreso.start()
+        else:
+            self.barra_progreso.stop()
+            self.barra_progreso.pack_forget()
+            self.btn_procesar.configure(
+                state="normal",
+                text="Procesar",
+                fg_color=T.PRIMARIO,
+                hover_color=T.PRIMARIO_HOVER
+            )
+
+    def _revisar_proceso(self):
+        if self._resultado_hilo is None:
+            segundos = int(time.monotonic() - self._inicio_proceso)
+            self.estado.configure(
+                text=f"Ejecutando la macro… {segundos} s transcurridos. La ventana sigue disponible mientras tanto."
+            )
+            self.after(200, self._revisar_proceso)
+            return
+
+        tipo, valor = self._resultado_hilo
+        self._resultado_hilo = None
+        self._set_procesando(False)
+        self._finalizar_proceso(tipo, valor)
+
+    def _finalizar_proceso(self, tipo, valor):
         try:
-            resultado = ejecutar_control(self.archivo_044, self.archivo_090)
+            if tipo == "error":
+                raise valor
+            resultado = valor
             if not isinstance(resultado, dict) or "resumen" not in resultado or "df" not in resultado:
                 raise ValueError("La macro devolvió un resultado inválido. Revisar el procesamiento.")
 
@@ -787,13 +830,14 @@ class PantallaCargaDatos(ctk.CTkFrame):
             )
             pantalla.cargar_dataframe(df)
 
+            segundos = int(time.monotonic() - self._inicio_proceso)
             self.estado.configure(
-                text=f"Bases cargadas correctamente. La macro finalizó con éxito. Total procesado: {resumen.get('total', 0)} registros.",
-                text_color="#86efac"
+                text=f"La macro finalizó con éxito en {segundos} s. Total procesado: {resumen.get('total', 0)} registros.",
+                text_color=T.OK
             )
             escribir_log_auditoria(f"Procesamiento finalizado. Registros totales: {resumen.get('total', 0)}; macro: {resumen.get('macro', 0)}; manual: {resumen.get('manual', 0)}")
             self._agregar_log(
-                f"Procesamiento finalizado correctamente. Las bases ya estaban cargadas y el total fue de {resumen.get('total', 0)} registros."
+                f"Procesamiento finalizado correctamente en {segundos} s. Total: {resumen.get('total', 0)} registros."
             )
             messagebox.showinfo(
                 "Macro ejecutada",
@@ -818,13 +862,38 @@ class PantallaCargaDatos(ctk.CTkFrame):
                 f"Ocurrió un error inesperado durante el procesamiento.\nDetalle: {exc}",
                 exc
             )
-        finally:
-            self.btn_procesar.configure(
-                state="normal",
-                text="PROCESAR",
-                fg_color="#2563eb",
-                hover_color="#1d4ed8"
-            )
+
+
+def crear_estado_vacio(pantalla, titulo, descripcion):
+    """Panel que tapa la pantalla cuando todavía no hay datos procesados."""
+    vacio = ctk.CTkFrame(pantalla, fg_color=T.FONDO, corner_radius=0)
+    centro = ctk.CTkFrame(vacio, fg_color="transparent")
+    centro.place(relx=0.5, rely=0.45, anchor="center")
+    ctk.CTkLabel(centro, text=titulo, font=(T.FUENTE, 22, "bold"), text_color=T.TEXTO).pack()
+    ctk.CTkLabel(
+        centro, text=descripcion, font=T.CUERPO, text_color=T.TEXTO_SECUNDARIO, wraplength=460, justify="center"
+    ).pack(pady=(8, 20))
+    botones = ctk.CTkFrame(centro, fg_color="transparent")
+    botones.pack()
+    ctk.CTkButton(
+        botones, text="Ir a carga de datos", command=pantalla.master.mostrar_pantalla_carga,
+        width=190, height=T.ALTO_BOTON, corner_radius=T.RADIO_BOTON,
+        fg_color=T.PRIMARIO, hover_color=T.PRIMARIO_HOVER, font=T.BOTON,
+    ).pack(side="left", padx=6)
+    ctk.CTkButton(
+        botones, text="Volver", command=pantalla.master.volver,
+        width=160, height=T.ALTO_BOTON, corner_radius=T.RADIO_BOTON,
+        fg_color=T.SECUNDARIO, text_color=T.TEXTO_SOBRE_SECUNDARIO, hover_color=T.SECUNDARIO_HOVER, font=T.BOTON,
+    ).pack(side="left", padx=6)
+    return vacio
+
+
+def alternar_estado_vacio(vacio, mostrar):
+    if mostrar:
+        vacio.place(relx=0, rely=0, relwidth=1, relheight=1)
+        vacio.lift()
+    else:
+        vacio.place_forget()
 
 
 class PantallaVisualizacion(PantallaControl):
@@ -833,22 +902,18 @@ class PantallaVisualizacion(PantallaControl):
         super().__init__(master)
         self.master = master
 
-        self.btn_volver = ctk.CTkButton(
-            self.frame_acciones,
-            text="VOLVER AL MENÚ PRINCIPAL",
-            command=self.volver_al_menu,
-            width=260,
-            height=42,
-            corner_radius=12,
-            fg_color="#334155",
-            hover_color="#475569",
-            text_color="#ffffff",
-            font=("Segoe UI", 12, "bold")
+
+        self.vacio = crear_estado_vacio(
+            self,
+            "Todavía no hay liquidaciones procesadas",
+            "Cargá los reportes 044, 090 y 077 y procesalos para revisar las liquidaciones acá.",
         )
-        self.btn_volver.pack(side="left", padx=8)
+
+    def mostrar_vacio(self, mostrar):
+        alternar_estado_vacio(self.vacio, mostrar)
 
     def volver_al_menu(self):
-        self.master.mostrar_pantalla("menu")
+        self.master.volver()
 
 
 class PantallaLimpieza(ctk.CTkFrame):
@@ -857,84 +922,143 @@ class PantallaLimpieza(ctk.CTkFrame):
         super().__init__(master)
         self.master = master
         self.df_original = pd.DataFrame()
-        self.configure(fg_color="#0b1120")
+        self.configure(fg_color=T.FONDO)
         self.pack(fill="both", expand=True, padx=30, pady=30)
         self.crear_interfaz()
 
     def crear_interfaz(self):
-        titulo = ctk.CTkLabel(
+        ctk.CTkLabel(
             self,
-            text="LIMPIEZA DE DOCUMENTOS CONTROLADOS",
-            font=("Segoe UI", 28, "bold"),
-            text_color="#f8fafc"
-        )
-        titulo.pack(anchor="w", padx=18, pady=(18, 12))
-
-        self.estado = ctk.CTkLabel(
+            text="Limpieza de liquidaciones controladas",
+            font=T.TITULO_PANTALLA,
+            text_color=T.TEXTO
+        ).pack(anchor="w", padx=18, pady=(18, 2))
+        ctk.CTkLabel(
             self,
-            text="",
-            text_color="#86efac",
-            font=("Segoe UI", 12, "bold"),
+            text=(
+                "Estas son las liquidaciones que marcaste como controladas en Visualizar. "
+                "Al pasarlas al histórico quedan registradas y salen de la vista actual."
+            ),
+            font=T.CUERPO,
+            text_color=T.TEXTO_SECUNDARIO,
             anchor="w",
-            justify="left"
-        )
-        self.estado.pack(anchor="w", padx=18, pady=(0, 10))
+            justify="left",
+            wraplength=900,
+        ).pack(anchor="w", padx=18, pady=(0, 12))
 
+        # --- Pie anclado abajo: acciones y registro de actividad (se reservan su lugar primero)
         self.frame_log = ctk.CTkFrame(
             self,
-            fg_color="#0f172a",
+            fg_color=T.SUPERFICIE_HUNDIDA,
             corner_radius=14,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
-        self.frame_log.pack(fill="x", padx=18, pady=(0, 10))
+        self.frame_log.pack(side="bottom", fill="x", padx=20, pady=(0, 10))
+        ctk.CTkLabel(self.frame_log, text="Actividad", font=T.ETIQUETA, text_color=T.TEXTO_SECUNDARIO).pack(
+            anchor="w", padx=12, pady=(10, 0)
+        )
+        self.log = ctk.CTkTextbox(
+            self.frame_log, height=64, state="disabled", wrap="word",
+            fg_color=T.SUPERFICIE_HUNDIDA, text_color=T.TEXTO_SUAVE
+        )
+        self.log.pack(fill="x", padx=12, pady=(4, 10))
 
-        lbl_log = ctk.CTkLabel(self.frame_log, text="ACTIVIDAD", font=("Segoe UI", 12, "bold"), text_color="#cbd5e1")
-        lbl_log.pack(anchor="w", padx=12, pady=(12, 0))
+        acciones = ctk.CTkFrame(self, fg_color="transparent")
+        acciones.pack(side="bottom", fill="x", padx=20, pady=(0, 12))
 
-        self.log = ctk.CTkTextbox(self.frame_log, height=6, state="disabled", wrap="word")
-        self.log.pack(fill="x", padx=12, pady=(6, 12))
+        self.btn_historico = ctk.CTkButton(
+            acciones,
+            text="Pasar al histórico",
+            command=self.eliminar_seleccionados,
+            width=240,
+            height=T.ALTO_BOTON,
+            corner_radius=T.RADIO_BOTON,
+            fg_color=T.PRIMARIO,
+            hover_color=T.PRIMARIO_HOVER,
+            font=T.BOTON
+        )
+        self.btn_historico.pack(side="right")
+
+        self.btn_quitar = ctk.CTkButton(
+            acciones,
+            text="Quitar marca",
+            command=self.quitar_marca,
+            width=160,
+            height=T.ALTO_BOTON,
+            corner_radius=T.RADIO_BOTON,
+            fg_color=T.SECUNDARIO,
+            hover_color=T.SECUNDARIO_HOVER,
+            text_color=T.TEXTO_SOBRE_SECUNDARIO,
+            font=T.BOTON
+        )
+        self.btn_quitar.pack(side="right", padx=(0, 10))
+
+        self.estado = ctk.CTkLabel(acciones, text="", text_color=T.OK, font=T.ETIQUETA, anchor="w", justify="left")
+        self.estado.pack(side="left")
+
+        # --- Resumen y tabla
+        self.lbl_resumen = ctk.CTkLabel(self, text="", font=T.SUBTITULO, text_color=T.TEXTO, anchor="w")
+        self.lbl_resumen.pack(anchor="w", padx=20, pady=(0, 8))
 
         self.frame_tabla = ctk.CTkFrame(
             self,
-            fg_color="#111827",
+            fg_color=T.SUPERFICIE,
             corner_radius=18,
             border_width=1,
-            border_color="#334155"
+            border_color=T.BORDE
         )
-        self.frame_tabla.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.frame_tabla.pack(fill="both", expand=True, padx=20, pady=(0, 12))
 
-        self.tabla = ctk.CTkTextbox(self.frame_tabla, height=16)
-        self.tabla.pack(fill="both", expand=True, padx=12, pady=12)
+        columnas = ("Documento", "Tipo", "Contrato", "Fecha de pago", "Beneficiario", "Total", "Líneas")
+        self.tabla = ttk.Treeview(self.frame_tabla, columns=columnas, show="headings", selectmode="browse")
+        anchos = {"Documento": 110, "Tipo": 70, "Contrato": 140, "Fecha de pago": 120,
+                  "Beneficiario": 300, "Total": 150, "Líneas": 70}
+        for columna in columnas:
+            self.tabla.heading(columna, text=columna)
+            self.tabla.column(
+                columna,
+                width=anchos[columna],
+                anchor="w" if columna == "Beneficiario" else ("e" if columna == "Total" else "center"),
+                stretch=columna == "Beneficiario",
+            )
+        scroll_y = ttk.Scrollbar(self.frame_tabla, orient="vertical", command=self.tabla.yview)
+        self.tabla.configure(yscrollcommand=scroll_y.set)
+        scroll_y.pack(side="right", fill="y", pady=12, padx=(0, 8))
+        self.tabla.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=12)
+        self.tabla.tag_configure("par", background=T.SUPERFICIE)
+        self.tabla.tag_configure("impar", background=T.SUPERFICIE_HUNDIDA)
+        self.tabla.bind("<Double-1>", self.ver_detalle)
+        self.tabla.bind("<Return>", self.ver_detalle)
+        self.tabla.bind("<Delete>", lambda _event: self.quitar_marca())
 
-        self.tabla.insert("0.0", "No hay documentos controlados para mostrar.")
+        # Mensaje cuando hay datos procesados pero ninguna liquidación marcada
+        self.sin_marcadas = ctk.CTkFrame(self.frame_tabla, fg_color=T.SUPERFICIE, corner_radius=18)
+        centro = ctk.CTkFrame(self.sin_marcadas, fg_color="transparent")
+        centro.place(relx=0.5, rely=0.45, anchor="center")
+        ctk.CTkLabel(
+            centro, text="Todavía no marcaste liquidaciones como controladas",
+            font=(T.FUENTE, 18, "bold"), text_color=T.TEXTO
+        ).pack()
+        ctk.CTkLabel(
+            centro,
+            text="Revisalas en Visualizar y usá «Marcar controlado» en las que ya estén OK.",
+            font=T.CUERPO, text_color=T.TEXTO_SECUNDARIO
+        ).pack(pady=(6, 16))
+        ctk.CTkButton(
+            centro, text="Ir a Visualizar", command=self.master.mostrar_pantalla_visualizacion,
+            width=180, height=T.ALTO_BOTON, corner_radius=T.RADIO_BOTON,
+            fg_color=T.PRIMARIO, hover_color=T.PRIMARIO_HOVER, font=T.BOTON
+        ).pack()
 
-        acciones = ctk.CTkFrame(self, fg_color="transparent")
-        acciones.pack(fill="x", padx=20, pady=(0, 20))
-
-        btn_eliminar = ctk.CTkButton(
-            acciones,
-            text="Limpiar controlados",
-            command=self.eliminar_seleccionados,
-            width=250,
-            height=46,
-            fg_color="#dc2626",
-            hover_color="#b91c1c",
-            font=("Segoe UI", 14, "bold")
+        self.vacio = crear_estado_vacio(
+            self,
+            "Todavía no hay liquidaciones procesadas",
+            "Procesá las bases y marcá las liquidaciones controladas en Visualizar para pasarlas al histórico desde acá.",
         )
-        btn_eliminar.pack(side="left", padx=(0, 12))
 
-        btn_volver = ctk.CTkButton(
-            acciones,
-            text="VOLVER AL MENÚ PRINCIPAL",
-            command=self.volver_al_menu,
-            width=260,
-            height=46,
-            fg_color="#334155",
-            hover_color="#475569",
-            font=("Segoe UI", 14, "bold")
-        )
-        btn_volver.pack(side="left")
+    def mostrar_vacio(self, mostrar):
+        alternar_estado_vacio(self.vacio, mostrar)
 
     def _agregar_log(self, mensaje):
         if not hasattr(self, "log"):
@@ -1195,11 +1319,21 @@ class PantallaLimpieza(ctk.CTkFrame):
         )
         return True
 
+    @staticmethod
+    def _formatear_importe(valor):
+        try:
+            numero = float(valor)
+        except (TypeError, ValueError):
+            return "-"
+        texto = f"{abs(numero):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{'-' if numero < 0 else ''}$ {texto}"
+
     def cargar_documentos(self, df):
+        self.tabla.delete(*self.tabla.get_children())
+
         if df is None or df.empty:
             self.df_original = pd.DataFrame()
-            self.tabla.delete("0.0", "end")
-            self.tabla.insert("0.0", "No hay documentos controlados para mostrar.")
+            self._actualizar_resumen(0)
             return
 
         self.df_original = df.copy()
@@ -1210,42 +1344,107 @@ class PantallaLimpieza(ctk.CTkFrame):
         if hasattr(self.master, "df_procesado") and self.master.df_procesado is not None:
             self.master.df_procesado = self.df_original.copy()
 
-        controlados = self.df_original[self.df_original["CONTROLADO"] == True].copy()
-
-        self.tabla.delete("0.0", "end")
-        if controlados.empty:
-            self.tabla.insert("0.0", "No hay documentos controlados para mostrar.")
+        controlados = self.df_original[self.df_original["CONTROLADO"]].copy()
+        if controlados.empty or "Numero Doc" not in controlados.columns:
+            self._actualizar_resumen(0)
             return
 
-        lineas = []
-        for _, fila in controlados.iterrows():
-            numero_doc = str(fila.get("Numero Doc", ""))
-            contrato = str(fila.get("Contrato", ""))
-            fecha_pago = ""
-            if "Fecha Pago" in fila and pd.notna(fila.get("Fecha Pago")):
-                fecha_pago = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
-            beneficiario = str(fila.get("AB Beneficiario del Pago", fila.get("Nombre Beneficiario del Pago", "")))
-            estado = "CONTROLADO" if bool(fila.get("CONTROLADO", False)) else "NO CONTROLADO"
-            lineas.append(f"{numero_doc} | {contrato} | {fecha_pago} | {beneficiario} | {estado}\n")
+        # Una liquidación puede tener varias líneas (grano, retenciones, percepciones):
+        # se muestra una sola fila por documento, con la cantidad de líneas que agrupa.
+        controlados["_doc"] = controlados["Numero Doc"].astype(str).str.strip()
+        lineas_por_doc = controlados.groupby("_doc", sort=False).size()
+        documentos = controlados.drop_duplicates(subset=["_doc"], keep="first").sort_values("_doc")
 
-        self.tabla.insert("0.0", "".join(lineas))
+        for indice, (_, fila) in enumerate(documentos.iterrows()):
+            fecha_pago = ""
+            if pd.notna(fila.get("Fecha Pago")):
+                fecha_pago = pd.to_datetime(fila.get("Fecha Pago")).strftime("%d/%m/%Y")
+            beneficiario = fila.get("AB Beneficiario del Pago", fila.get("Nombre Beneficiario del Pago", ""))
+            beneficiario = "" if pd.isna(beneficiario) else str(beneficiario)
+            self.tabla.insert(
+                "",
+                "end",
+                values=(
+                    fila["_doc"],
+                    "" if pd.isna(fila.get("Tipo Doc")) else str(fila.get("Tipo Doc", "")),
+                    "" if pd.isna(fila.get("Contrato")) else str(fila.get("Contrato", "")),
+                    fecha_pago,
+                    beneficiario or "-",
+                    self._formatear_importe(fila.get("Total a Pagar")),
+                    int(lineas_por_doc[fila["_doc"]]),
+                ),
+                tags=("par" if indice % 2 == 0 else "impar",),
+            )
+
+        self._actualizar_resumen(len(documentos))
+
+    def _actualizar_resumen(self, cantidad):
+        if cantidad:
+            plural = "liquidación lista" if cantidad == 1 else "liquidaciones listas"
+            self.lbl_resumen.configure(text=f"{cantidad} {plural} para pasar al histórico")
+            self.btn_historico.configure(text=f"Pasar al histórico ({cantidad})")
+            self.sin_marcadas.place_forget()
+        else:
+            self.lbl_resumen.configure(text="Sin liquidaciones marcadas")
+            self.btn_historico.configure(text="Pasar al histórico")
+            self.sin_marcadas.place(relx=0.5, rely=0.5, relwidth=0.99, relheight=0.97, anchor="center")
+            self.sin_marcadas.lift()
+
+    def _documento_seleccionado(self):
+        seleccion = self.tabla.selection()
+        if not seleccion:
+            return None
+        valores = self.tabla.item(seleccion[0], "values")
+        return str(valores[0]).strip() if valores else None
+
+    def ver_detalle(self, _event=None):
+        documento = self._documento_seleccionado()
+        if documento:
+            self.master.frames["visualizacion"].ver_detalle(numero_doc=documento)
+
+    def quitar_marca(self):
+        documento = self._documento_seleccionado()
+        if not documento:
+            self.estado.configure(text="Seleccioná una liquidación de la tabla.", text_color=T.AVISO)
+            return
+        mascara = self.df_original["Numero Doc"].astype(str).str.strip() == documento
+        self.df_original.loc[mascara, "CONTROLADO"] = False
+        self.cargar_documentos(self.df_original)
+        self.estado.configure(text=f"Se quitó la marca de la liquidación {documento}.", text_color=T.INFO)
+        self._agregar_log(f"Liquidación {documento} desmarcada: vuelve a quedar pendiente de control.")
 
     def eliminar_seleccionados(self):
         if self.df_original.empty:
-            self.estado.configure(text="No hay documentos para limpiar.", text_color="#fbbf24")
+            self.estado.configure(text="No hay documentos para limpiar.", text_color=T.AVISO)
             self._agregar_log("No hay documentos para limpiar en la vista actual.")
             messagebox.showinfo("Sin registros", "No existen documentos controlados para limpiar en la vista actual.")
             return
 
         controlados = self.df_original[self.df_original["CONTROLADO"].fillna(False).astype(bool)].copy()
         if controlados.empty:
-            self.estado.configure(text="No hay documentos seleccionados como controlados.", text_color="#fbbf24")
+            self.estado.configure(text="No hay documentos seleccionados como controlados.", text_color=T.AVISO)
             self._agregar_log("No hay documentos marcados como controlados para guardar en el histórico.")
             messagebox.showinfo("Sin selección", "No hay documentos marcados como controlados para guardar en el histórico.")
             return
 
-        self.estado.configure(text="Generando histórico de documentos controlados...", text_color="#f8fafc")
-        self._agregar_log(f"Inicia generación del histórico para {len(controlados)} documentos controlados.")
+        cantidad_docs = (
+            controlados["Numero Doc"].astype(str).str.strip().nunique()
+            if "Numero Doc" in controlados.columns else len(controlados)
+        )
+        confirmar = messagebox.askyesno(
+            "Pasar al histórico",
+            f"Se van a registrar {cantidad_docs} liquidación(es) en el histórico de documentos controlados "
+            "y van a salir de la vista actual.\n\n¿Continuar?",
+            default="no",
+        )
+        if not confirmar:
+            self.estado.configure(text="No se modificó el histórico.", text_color=T.TEXTO_SECUNDARIO)
+            return
+
+        self.estado.configure(text="Generando histórico de documentos controlados…", text_color=T.TEXTO)
+        self._agregar_log(
+            f"Inicia el pase al histórico de {cantidad_docs} liquidación(es) ({len(controlados)} líneas)."
+        )
         self.update_idletasks()
 
         persistido = self._guardar_historico_controlados(controlados)
@@ -1254,7 +1453,7 @@ class PantallaLimpieza(ctk.CTkFrame):
                 "No se eliminan registros de la macro porque la escritura del histórico falló. registros=%s",
                 len(controlados),
             )
-            self.estado.configure(text="Error: no se pudo generar el histórico.", text_color="#fca5a5")
+            self.estado.configure(text="Error: no se pudo generar el histórico.", text_color=T.ERROR)
             self._agregar_log("Error: la escritura del histórico falló.")
             messagebox.showerror(
                 "Error de histórico",
@@ -1275,17 +1474,17 @@ class PantallaLimpieza(ctk.CTkFrame):
 
         self.cargar_documentos(self.df_original)
         self.estado.configure(
-            text=f"Histórico generado correctamente. Se registraron {len(controlados)} documentos controlados.",
-            text_color="#86efac"
+            text=f"Listo: {cantidad_docs} liquidación(es) pasaron al histórico.",
+            text_color=T.OK
         )
-        self._agregar_log(f"Histórico generado correctamente para {len(controlados)} documentos controlados.")
+        self._agregar_log(f"{cantidad_docs} liquidación(es) registradas en el histórico.")
         messagebox.showinfo(
             "Histórico generado",
-            f"Se registraron correctamente {len(controlados)} documentos en el histórico."
+            f"Se registraron {cantidad_docs} liquidación(es) en el histórico."
         )
 
     def volver_al_menu(self):
-        self.master.mostrar_pantalla("menu")
+        self.master.volver()
 
 
-PantallaInicio = MenuPrincipal
+PantallaInicio = MenuControlar

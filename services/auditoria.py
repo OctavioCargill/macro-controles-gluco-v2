@@ -43,7 +43,7 @@ def resolver_estructura_runtime(base_dir=None):
     return rutas
 
 
-APP_NAME = "Macro Controles Gluco V2"
+APP_NAME = "Aplicacion - Proceso Glucovil "
 APP_VERSION = "2.0.0"
 APP_VERSION_DATE = "2026-10-14"
 APP_ROOT = resolver_ruta_base()

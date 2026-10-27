@@ -3,6 +3,7 @@ pandas>=2.0
 customtkinter>=5.2
 openpyxl>=3.1
 pyxlsb>=1.0.0
+XlsxWriter>=3.1
 Pillow>=10.0
 
 # Optional, only needed when Excel COM is desired on Windows.
