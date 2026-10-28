@@ -7,9 +7,10 @@ ROOT = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd(
 block_cipher = None
 
 datas = [
-    (str(ROOT / "assets" / "icons" / "placeholder.ico"), "assets/icons"),
+    (str(ROOT / "assets" / "icons" / "glucovil.ico"), "assets/icons"),
+    (str(ROOT / "assets" / "icons" / "glucovil.png"), "assets/icons"),
     (str(ROOT / "config" / "app_settings.json"), "config"),
-    (str(ROOT / "icon" / "placeholder.ico"), "icon"),
+    (str(ROOT / "icon" / "glucovil.ico"), "icon"),
     (str(ROOT / "README.txt"), "."),
     (str(ROOT / "logs"), "logs"),
     (str(ROOT / "data"), "data"),
@@ -49,7 +50,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    icon=str(ROOT / "assets" / "icons" / "placeholder.ico"),
+    icon=str(ROOT / "assets" / "icons" / "glucovil.ico"),
 )
 
 coll = COLLECT(

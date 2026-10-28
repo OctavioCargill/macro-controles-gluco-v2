@@ -1,8 +1,0 @@
-{
-  "product_name": "Macro Controles Gluco V2",
-  "version": "2.0.0",
-  "author": "Configurable",
-  "description": "Herramienta de control y validación de liquidaciones.",
-  "default_data_dir": "data",
-  "default_logs_dir": "logs"
-}

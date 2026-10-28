@@ -52,9 +52,20 @@ APP_DATA_PATH = APP_RUNTIME["data"]
 APP_LOGS_PATH = APP_RUNTIME["logs"]
 APP_CONFIG_PATH = APP_RUNTIME["config"]
 APP_ICON_DIR = APP_RUNTIME["icon"]
-APP_ICON_PATH = APP_ICON_DIR / "placeholder.ico"
-if not APP_ICON_PATH.exists():
-    APP_ICON_PATH = APP_ROOT / "assets" / "icons" / "placeholder.ico"
+def _buscar_recurso_grafico(nombre):
+    """Busca un ícono/logo en las carpetas posibles (desarrollo y ejecutable)."""
+    carpetas = [APP_ICON_DIR, APP_ROOT / "assets" / "icons"]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        carpetas += [Path(meipass) / "icon", Path(meipass) / "assets" / "icons"]
+    for carpeta in carpetas:
+        if (carpeta / nombre).exists():
+            return carpeta / nombre
+    return carpetas[0] / nombre
+
+
+APP_ICON_PATH = _buscar_recurso_grafico("glucovil.ico")
+APP_LOGO_PATH = _buscar_recurso_grafico("glucovil.png")
 
 
 def asegurar_estructura_runtime(base_dir=None):
@@ -62,9 +73,9 @@ def asegurar_estructura_runtime(base_dir=None):
     base = rutas["root"]
 
     icon_dir = rutas["icon"]
-    icon_source = base / "assets" / "icons" / "placeholder.ico"
-    if not icon_dir.joinpath("placeholder.ico").exists() and icon_source.exists():
-        icon_dir.joinpath("placeholder.ico").write_bytes(icon_source.read_bytes())
+    icon_source = base / "assets" / "icons" / "glucovil.ico"
+    if not icon_dir.joinpath("glucovil.ico").exists() and icon_source.exists():
+        icon_dir.joinpath("glucovil.ico").write_bytes(icon_source.read_bytes())
 
     config_dir = rutas["config"]
     settings_path = config_dir / "app_settings.json"

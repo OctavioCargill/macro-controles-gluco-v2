@@ -4,7 +4,7 @@ import customtkinter as ctk
 
 from gui import tema as T
 from gui.pantalla_inicio import TarjetaPaso
-from services.auditoria import APP_NAME, APP_VERSION
+from services.auditoria import APP_LOGO_PATH, APP_NAME, APP_VERSION
 
 
 class MenuPrincipal(ctk.CTkFrame):
@@ -22,6 +22,14 @@ class MenuPrincipal(ctk.CTkFrame):
         # --- Cabecera: nombre de la app a la izquierda, versión (info) a la derecha
         cabecera = ctk.CTkFrame(contenido, fg_color="transparent")
         cabecera.pack(fill="x")
+        if APP_LOGO_PATH.exists():
+            try:
+                from PIL import Image
+
+                self._logo = ctk.CTkImage(light_image=Image.open(APP_LOGO_PATH), size=(64, 64))
+                ctk.CTkLabel(cabecera, image=self._logo, text="").pack(side="left", padx=(0, 16))
+            except Exception:
+                pass
         textos = ctk.CTkFrame(cabecera, fg_color="transparent")
         textos.pack(side="left")
         ctk.CTkLabel(textos, text="GLUCOVIL", font=T.ETIQUETA_CHICA, text_color=T.MARCA).pack(anchor="w")

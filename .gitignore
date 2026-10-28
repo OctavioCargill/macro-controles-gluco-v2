@@ -1,22 +1,35 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 
-# VS Code
+# VS Code / IDEs
 .vscode/
+.idea/
 
 # Entornos virtuales
 venv/
 .venv/
 .env
 
-# Archivos SAP
+# PyInstaller (build y ejecutables generados)
+build/
+dist/
+dist_final/
+# Si el .spec lo mantenés a mano, NO lo ignores (dejalo versionado)
+
+# Archivos SAP / datos
 data/*.xlsx
 data/*.xlsm
 data/*.xlsb
+data/*.csv
+~$*.xlsx
+~$*.xlsm
+~$*.xlsb
 
 # Output
 output/*.xlsx
+output/*.csv
 
 # Logs
 *.log
