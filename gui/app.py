@@ -33,6 +33,12 @@ from gui.pantalla_inicio import (
     PantallaVisualizacion,
     PantallaLimpieza,
 )
+from gui.pantalla_netting import (
+    MenuNetting,
+    PantallaNettingCarga,
+    PantallaNettingRevision,
+    PantallaNettingSalida,
+)
 
 # Jerarquía de pantallas: de quién cuelga cada una y cómo se llama en la ruta de navegación.
 PANTALLA_PADRE = {
@@ -45,6 +51,9 @@ PANTALLA_PADRE = {
     "limpieza": "controlar",
     "busqueda": "controlar",
     "metricas": "controlar",
+    "netting_carga": "netting",
+    "netting_revision": "netting",
+    "netting_salida": "netting",
 }
 TITULO_PANTALLA = {
     "inicio": "Menú principal",
@@ -56,6 +65,9 @@ TITULO_PANTALLA = {
     "limpieza": "Limpieza de controladas",
     "busqueda": "Buscador global",
     "metricas": "Métricas generales",
+    "netting_carga": "Armar propuestas",
+    "netting_revision": "Revisar propuestas",
+    "netting_salida": "Dar salida",
 }
 
 ctk.set_appearance_mode("light")
@@ -92,6 +104,10 @@ class App(ctk.CTk):
             "lista_para_produccion": False,
         }
 
+        # Netting: resultado de la última corrida y archivo generado (solo en memoria, por sesión).
+        self.netting_resultado = None
+        self.netting_salida = None
+
         self._historial = []
         self._pantalla_actual = None
         self._navegacion_bloqueada = False
@@ -99,7 +115,10 @@ class App(ctk.CTk):
         self.frames = {
             "inicio": MenuPrincipal(self),
             "controlar": MenuControlar(self),
-            "netting": PantallaEnDesarrollo(self, "Netting"),
+            "netting": MenuNetting(self),
+            "netting_carga": PantallaNettingCarga(self),
+            "netting_revision": PantallaNettingRevision(self),
+            "netting_salida": PantallaNettingSalida(self),
             "liberacion": PantallaEnDesarrollo(self, "Liberación"),
             "metricas": PantallaMetricas(self),
             "busqueda": PantallaBusqueda(self),
@@ -336,7 +355,7 @@ class App(ctk.CTk):
         self.barra_navegacion.bloquear(bloquear)
 
     def _mostrar(self, nombre):
-        for menu in ("inicio", "controlar"):
+        for menu in ("inicio", "controlar", "netting"):
             if nombre == menu:
                 self.frames[menu].actualizar_estado()
 
@@ -356,6 +375,9 @@ class App(ctk.CTk):
 
         self.frames[nombre].pack(fill="both", expand=True)
         self.frames[nombre].tkraise()
+
+        if nombre.startswith("netting_") and hasattr(self.frames[nombre], "al_mostrar"):
+            self.frames[nombre].al_mostrar()
 
         if nombre == "metricas" and hasattr(self.frames["metricas"], "actualizar_metricas"):
             self.frames["metricas"].actualizar_metricas()

@@ -26,6 +26,8 @@ analysis = Analysis(
         "pandas",
         "openpyxl",
         "pyxlsb",
+        "xlsxwriter",
+        "netting",
         "tkinter",
         "pywin32",
     ],

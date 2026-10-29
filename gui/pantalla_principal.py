@@ -72,7 +72,6 @@ class MenuPrincipal(ctk.CTkFrame):
         for columna, tarjeta in enumerate((self.modulo_controlar, self.modulo_netting, self.modulo_liberacion)):
             tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0 if columna == 0 else 8, 0 if columna == 2 else 8))
 
-        self.modulo_netting.mostrar("pronto", "Netting de liquidaciones.", "En desarrollo")
         self.modulo_liberacion.mostrar("pronto", "Liberación de liquidaciones.", "En desarrollo")
 
         # --- Pie: salir
@@ -94,6 +93,19 @@ class MenuPrincipal(ctk.CTkFrame):
         self.actualizar_estado()
 
     def actualizar_estado(self):
+        resultado = getattr(self.master, "netting_resultado", None)
+        if resultado is None:
+            self.modulo_netting.mostrar(
+                "disponible", "Propuestas de 24 y 48 hs: lo que se paga y lo que se descuenta por beneficiario.", "Abrir →"
+            )
+        else:
+            e = resultado.estadisticas
+            self.modulo_netting.mostrar(
+                "siguiente",
+                f"Armadas a las {resultado.generado:%H:%M}: {e['propuestas_24']} de 24 hs y {e['propuestas_48']} de 48 hs.",
+                "Continuar →",
+            )
+
         df = getattr(self.master, "df_procesado", None)
         if df is None:
             self.modulo_controlar.mostrar(
