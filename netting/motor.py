@@ -159,9 +159,9 @@ def clasificar_beneficiario(fila):
     return fila.get("usuario_anulacion", "")
 
 
-# ---------------------------------------------------------------- 077 (abrir_bases + reordenar_077 + REPORTE_VENTAS)
+# ---------------------------------------------------------------- 077 (abrir_bases + reordenar_077)
 
-def preparar_077(registros_077, registros_090, ventas, avisos: Avisos):
+def preparar_077(registros_077, registros_090, avisos: Avisos):
     filas = []
     descartados_tipo = 0
     for registro in registros_077:
@@ -191,18 +191,9 @@ def preparar_077(registros_077, registros_090, ventas, avisos: Avisos):
         fila["ag"] = contratos_090[clave]
         cruzadas.append(fila)
 
-    # Se agregan las compensas de ventas al final (no pasan por el cruce con el 090).
-    for venta in ventas:
-        cruzadas.append({
-            "cod_bp": "VENTA", "cod_cliente": venta["ab_cliente"], "cliente": venta["cliente"],
-            "tipo": venta["tipo"], "nro": venta["nro"], "detalle": "", "fecha": None,
-            "saldo": venta["importe"], "contrato": "", "corredor": venta["corredor"],
-            "ab_corredor": venta["ab_corredor"], "ag": "", "fila_origen": venta["fila_origen"],
-        })
-
     avisos.agregar(
         f"077: {len(registros_077)} documentos leídos; {descartados_tipo} de otros tipos, "
-        f"{sin_contrato} sin contrato en el 090; quedan {len(cruzadas) - len(ventas)} + {len(ventas)} ventas."
+        f"{sin_contrato} sin contrato en el 090; quedan {len(cruzadas)} para descontar."
     )
     return cruzadas
 
@@ -275,7 +266,7 @@ def _fila_cobrar(doc077, tipo_benef, ab_corredor, corredor, ab_vendedor, vendedo
         "n_propuesta": "",
         "ventana": ventana,
         "id_largo": "",
-        "origen": "Venta" if doc077.get("cod_bp") == "VENTA" else "077",
+        "origen": "077",
     }
 
 
@@ -376,10 +367,7 @@ def armar_liquidaciones(hist, estado: Estado, ventana):
                     _aviso_busqueda_parcial(estado, estado.t077, "corredor", corredor, "077")
                 while j < len(estado.t077) and igual(estado.t077[j]["corredor"], corredor):
                     doc = estado.t077[j]
-                    if doc["cod_bp"] == "VENTA" and ventana == "24":
-                        encontrado = True
-                    else:
-                        encontrado = _contrato_coincide(ctto, x, reales, doc["contrato"], estado, corredor, doc["nro"])
+                    encontrado = _contrato_coincide(ctto, x, reales, doc["contrato"], estado, corredor, doc["nro"])
                     if encontrado and doc["ag"] != "YA USADA":
                         salida.append(_fila_cobrar(
                             doc, CORREDOR, primera["ab_corredor"], corredor, doc["cod_cliente"], doc["cliente"],

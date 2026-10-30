@@ -1092,6 +1092,29 @@ class PantallaLimpieza(ctk.CTkFrame):
         logger.info("Validación histórica OK. ruta=%s", ruta)
         return True
 
+    @staticmethod
+    def _titulos_historico(hoja):
+        """Títulos de la fila 1, sin las celdas vacías del final."""
+        titulos = [celda.value for celda in hoja[1]]
+        while titulos and titulos[-1] in (None, ""):
+            titulos.pop()
+        return [str(titulo) if titulo is not None else "" for titulo in titulos]
+
+    @classmethod
+    def _encabezado_historico_valido(cls, hoja):
+        """True si la fila 1 tiene un título por columna y ninguna fila de datos es más ancha."""
+        titulos = cls._titulos_historico(hoja)
+        if not titulos or any(titulo == "" for titulo in titulos):
+            return False
+        for fila in hoja.iter_rows(min_row=2, values_only=True):
+            ancho = 0
+            for indice, valor in enumerate(fila, start=1):
+                if valor is not None:
+                    ancho = indice
+            if ancho > len(titulos):
+                return False
+        return True
+
     def _escribir_historico_xlsx(self, df_hist, ruta):
         logger = logging.getLogger(__name__)
 
@@ -1122,17 +1145,47 @@ class PantallaLimpieza(ctk.CTkFrame):
                 else:
                     hoja = libro.create_sheet(title=nombre_hoja_historico)
 
-            if hoja.max_row == 1 and hoja["A1"].value is None:
-                columnas = list(df_hist.columns)
-                for idx, nombre_col in enumerate(columnas, start=1):
+            columnas = [str(columna) for columna in df_hist.columns]
+            vacia = hoja.max_row == 1 and hoja["A1"].value is None
+
+            if not vacia and not self._encabezado_historico_valido(hoja):
+                # Versiones anteriores agregaban filas debajo de títulos que no coincidían, y el
+                # histórico quedaba ilegible para Netting. Se guarda una copia del archivo y se
+                # arranca uno nuevo con todos los títulos.
+                libro.close()
+                respaldo = ruta.with_name(f"{ruta.stem}_backup_{datetime.now():%Y%m%d_%H%M%S}{ruta.suffix}")
+                ruta.rename(respaldo)
+                logger.warning(
+                    "El histórico no tenía títulos válidos; se guardó una copia y se crea uno nuevo. ruta=%s copia=%s",
+                    ruta,
+                    respaldo,
+                )
+                libro = Workbook()
+                hoja = libro.active
+                hoja.title = nombre_hoja_historico
+                vacia = True
+
+            if vacia:
+                encabezado = list(columnas)
+                for idx, nombre_col in enumerate(encabezado, start=1):
                     hoja.cell(row=1, column=idx, value=nombre_col)
                 fila_inicio = 2
             else:
+                encabezado = self._titulos_historico(hoja)
+                # Columnas nuevas (por ejemplo, si cambia el 044) se agregan al final de los títulos.
+                for nombre_col in columnas:
+                    if nombre_col not in encabezado:
+                        encabezado.append(nombre_col)
+                        hoja.cell(row=1, column=len(encabezado), value=nombre_col)
                 fila_inicio = hoja.max_row + 1
 
+            # Cada dato va a la columna con su mismo título, no a la misma posición.
+            posicion = {}
+            for idx, nombre_col in enumerate(encabezado, start=1):
+                posicion.setdefault(nombre_col, idx)
             for fila_idx, fila in enumerate(df_hist.itertuples(index=False, name=None), start=fila_inicio):
-                for col_idx, valor in enumerate(fila, start=1):
-                    hoja.cell(row=fila_idx, column=col_idx, value=valor)
+                for nombre_col, valor in zip(columnas, fila):
+                    hoja.cell(row=fila_idx, column=posicion[nombre_col], value=valor)
 
             libro.save(ruta)
             libro.close()

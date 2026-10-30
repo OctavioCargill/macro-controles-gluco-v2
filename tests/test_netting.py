@@ -165,14 +165,6 @@ FILAS_090 = [
     _f090("K5", "CAMPO CUATRO", None),
 ]
 
-ENCABEZADO_VENTAS = ["FECHA", "AB CLIENTE", "CLIENTE", "CORREDOR", "AB CORREDOR", "DOC;INTERNO", "DOCUMENTO",
-                     "ESTADO", "IMPORTE A COMPENSAR", "IMPORTE COMPENSADO", "DIFERNECIA", "DIAS DE ESPERA"]
-FILAS_VENTAS = [
-    [45000, "35100001", "COMPRADOR SA", "AGRO SUR SA", "500", "QJ 1802", 1, "PENDIENTE", 80.0, 0, 80.0, None],
-    [45000, "35100002", "OTRO SA", "AGRO SUR SA", "500", "ESPERAR", 1, "PENDIENTE", 15.0, 0, 15.0, None],
-]
-
-
 def _xlsx(ruta, encabezado, filas, hoja="Hoja1", filas_titulo=0):
     libro = openpyxl.Workbook()
     hoja_activa = libro.active
@@ -192,7 +184,6 @@ def archivos(tmp_path):
         "historico": _xlsx(tmp_path / "Historico.xlsx", ENCABEZADO_HIST, FILAS_HIST),
         "077": _xlsx(tmp_path / "077.xlsx", ENCABEZADO_077, FILAS_077 + [["Data Refresh Date: hoy"]], filas_titulo=2),
         "090": _xlsx(tmp_path / "090.xlsx", ENCABEZADO_090, FILAS_090, filas_titulo=2),
-        "ventas": _xlsx(tmp_path / "ventas.xlsx", ENCABEZADO_VENTAS, FILAS_VENTAS, hoja="Compensas Pendientes"),
     }
 
 
@@ -208,18 +199,17 @@ def test_corrida_completa(archivos, tmp_path, monkeypatch):
 
     # 24 hs: liquidaciones 1001, 1002, 1003, 1005 y la comisión 1006; no entran 1004 (48), 1007 (>48), 1008 (X)
     assert docs(p24, "PAGAR") == [1001, 1002, 1003, 1005, 1006]
-    # Descuentos: 7001 y 7002 del corredor (con contrato en el 090), la venta 1802, y 7004 del vendedor directo
-    assert docs(p24, "COBRAR") == [1802, 7001, 7002, 7004]
+    # Descuentos: 7001 y 7002 del corredor (con contrato en el 090) y 7004 del vendedor directo
+    assert docs(p24, "COBRAR") == [7001, 7002, 7004]
     cobrar = {f["doc"]: f for f in p24 if f["tipo"] == "COBRAR"}
     assert cobrar[7001]["total"] == -100.0          # el 077 se descuenta con signo negativo
-    assert cobrar[1802]["total"] == 80.0            # la venta toma la diferencia tal cual (como la macro)
     assert cobrar[7001]["benef"] == "AGRO SUR SA"
 
     # Propuestas: AGRO SUR (liquidaciones + descuentos), LA ESTANCIA, cesión, comisión AGRO SUR aparte
     resumen = resultado.resumen("24")
     por_benef = {(r["benef"], r["filas"][0]["tipo_doc"]): r for r in resumen}
     agro = por_benef[("AGRO SUR SA", "L#")]
-    assert agro["a_pagar"] == 3000.0 and agro["a_descontar"] == -140.0 + 80.0
+    assert agro["a_pagar"] == 3000.0 and agro["a_descontar"] == -140.0
     assert por_benef[("LA ESTANCIA", "L#")]["neto"] == 5000.0 - 60.0
     assert por_benef[("BANCO X", "L#")]["documentos"] == 1
     assert [r["n_propuesta"] for r in resumen] == list(range(1001, 1001 + len(resumen)))
@@ -238,16 +228,8 @@ def test_corrida_completa(archivos, tmp_path, monkeypatch):
     assert hoja.max_row == len(p24) + 1
 
 
-def test_corrida_sin_compensas_de_ventas(archivos):
-    sin_ventas = dict(archivos, ventas="")
-    resultado = ejecutar_netting(sin_ventas, HOY, 1000, CONFIG)
-    cobrar = sorted(f["doc"] for f in resultado.propuestas_24 if f["tipo"] == "COBRAR")
-    assert cobrar == [7001, 7002, 7004]  # sin la venta 1802
-    assert any("SIN compensas de ventas" in a for a in resultado.avisos.revisar)
-
-
 def test_errores_de_carga_claros(archivos, tmp_path):
     with pytest.raises(cargas.ErrorDeCarga, match="faltan columnas obligatorias"):
         cargas.cargar_historico(_xlsx(tmp_path / "malo.xlsx", ["Documento", "Tipo Doc", "Total a Pagar", "Fecha Pago"], [[1, "L#", 1, D0]]))
-    with pytest.raises(cargas.ErrorDeCarga, match="Compensas Pendientes"):
-        cargas.cargar_ventas(archivos["077"])
+    with pytest.raises(cargas.ErrorDeCarga, match="no se encontró la fila de encabezados"):
+        cargas.cargar_090(archivos["077"])

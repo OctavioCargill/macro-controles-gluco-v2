@@ -133,7 +133,7 @@ class MenuNetting(ctk.CTkFrame):
         resultado = getattr(self.master, "netting_resultado", None)
         salida = getattr(self.master, "netting_salida", None)
         if resultado is None:
-            self.paso_armar.mostrar("siguiente", "Histórico, 077, 090 y compensas de ventas. Elegís la fecha de proceso.", "Empezar →")
+            self.paso_armar.mostrar("siguiente", "Histórico de controlados, 077 y 090. Elegís la fecha de proceso.", "Empezar →")
             self.paso_revisar.mostrar("bloqueado", "Propuestas por beneficiario con lo que se paga y lo que se descuenta.", "Primero armá las propuestas")
             self.paso_salida.mostrar("bloqueado", "Reparto por analista y archivo Propuestas_Netting.", "Primero armá las propuestas")
             return
@@ -160,23 +160,7 @@ ARCHIVOS = (
     ("historico", "Histórico de documentos controlados", "Historico_Documentos_Controlados (.xlsb / .xlsx)"),
     ("077", "Reporte 077", "Documentos pendientes de cobro"),
     ("090", "Reporte 090", "Contratos de compra"),
-    ("ventas", "Compensas de ventas (opcional)", "Copia local en data: Compensas*.xlsx, hoja «Compensas Pendientes»"),
 )
-PATRON_VENTAS = "Compensas*"
-
-
-def buscar_compensas_en_data():
-    """Archivo de compensas más reciente en la carpeta data (Compensas*.xlsx / .xlsm / .xlsb / .xls)."""
-    carpeta = Path(APP_DATA_PATH)
-    if not carpeta.exists():
-        return ""
-    candidatos = [
-        p for p in carpeta.glob(PATRON_VENTAS)
-        if p.is_file() and p.suffix.lower() in (".xlsx", ".xlsm", ".xlsb", ".xls") and not p.name.startswith("~$")
-    ]
-    if not candidatos:
-        return ""
-    return str(max(candidatos, key=lambda p: p.stat().st_mtime))
 
 
 class PantallaNettingCarga(ctk.CTkFrame):
@@ -188,9 +172,6 @@ class PantallaNettingCarga(ctk.CTkFrame):
         self.config = cargar_config()
         self.rutas = {clave: self.config.get("rutas", {}).get(clave, "") for clave, *_ in ARCHIVOS}
         self.rutas = {k: (v if v and Path(v).exists() else "") for k, v in self.rutas.items()}
-        # Compensas de ventas: siempre se toma la copia local de data (la del día), no la de OneDrive.
-        self.rutas["ventas"] = buscar_compensas_en_data()
-        self._sin_ventas = False  # el usuario eligió correr sin compensas
         self._cola = queue.Queue()
         self._procesando = False
         self._crear()
@@ -233,8 +214,6 @@ class PantallaNettingCarga(ctk.CTkFrame):
             etiqueta.grid(row=fila, column=1, sticky="w", pady=2)
             botones = ctk.CTkFrame(panel, fg_color="transparent")
             botones.grid(row=fila, column=2, sticky="e", padx=18, pady=2)
-            if clave == "ventas":
-                _boton(botones, "Quitar", self.quitar_ventas, tipo="borde", ancho=70, alto=32).pack(side="left", padx=(0, 6))
             _boton(botones, "Elegir…", lambda c=clave: self.elegir(c), tipo="secundario", ancho=110, alto=32).pack(side="left")
             self.lbl_rutas[clave] = etiqueta
         ctk.CTkFrame(panel, fg_color="transparent", height=6).grid(row=len(ARCHIVOS) + 1, column=0)
@@ -270,9 +249,6 @@ class PantallaNettingCarga(ctk.CTkFrame):
 
     def al_mostrar(self):
         # Después de dar salida, el último N° guardado pasa a ser el punto de partida de la próxima corrida.
-        if not self._procesando and not self._sin_ventas and not self.rutas.get("ventas"):
-            self.rutas["ventas"] = buscar_compensas_en_data()
-            self._refrescar_rutas()
         if getattr(self.master, "netting_salida", None) and not self._procesando:
             self.config = cargar_config()
             self.ent_numero.delete(0, "end")
@@ -290,13 +266,6 @@ class PantallaNettingCarga(ctk.CTkFrame):
                 except OSError:
                     cuando, viejo = "", False
                 etiqueta.configure(text=f"✓  {ruta}{cuando}", text_color=T.AVISO if viejo else T.OK)
-            elif clave == "ventas" and self._sin_ventas:
-                etiqueta.configure(text="Sin compensas de ventas (quitado a mano).", text_color=T.AVISO)
-            elif clave == "ventas":
-                etiqueta.configure(
-                    text=f"No hay ningún Compensas*.xlsx en {APP_DATA_PATH}. Se arma sin compensas de ventas.",
-                    text_color=T.AVISO,
-                )
             else:
                 etiqueta.configure(text="Sin elegir", text_color=T.TEXTO_TENUE)
 
@@ -310,14 +279,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
         )
         if ruta:
             self.rutas[clave] = ruta
-            if clave == "ventas":
-                self._sin_ventas = False
             self._refrescar_rutas()
-
-    def quitar_ventas(self):
-        self.rutas["ventas"] = ""
-        self._sin_ventas = True
-        self._refrescar_rutas()
 
     def _poner_fecha(self, desplazamiento):
         dia = date.today()
@@ -349,7 +311,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
     def armar(self):
         if self._procesando:
             return
-        faltan = [titulo for clave, titulo, _ in ARCHIVOS if clave != "ventas" and not self.rutas.get(clave)]
+        faltan = [titulo for clave, titulo, _ in ARCHIVOS if not self.rutas.get(clave)]
         if faltan:
             messagebox.showwarning("Faltan archivos", "Elegí: " + ", ".join(faltan) + ".")
             return
@@ -368,7 +330,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
         ):
             return
 
-        self.config["rutas"].update({k: v for k, v in self.rutas.items() if k != "ventas"})
+        self.config["rutas"].update(self.rutas)
         self.config["ultimo_numero_propuesta"] = numero
         try:
             guardar_config(self.config)

@@ -1,4 +1,4 @@
-"""Lectura de los cuatro archivos de entrada de Netting.
+"""Lectura de los tres archivos de entrada de Netting.
 
 Se leen las celdas tal cual (sin que pandas cambie tipos) para poder replicar las comparaciones
 de la macro. Se aceptan .xlsb (pyxlsb), .xlsx/.xlsm (openpyxl), .xls y .csv.
@@ -7,7 +7,6 @@ de la macro. Se aceptan .xlsb (pyxlsb), .xlsx/.xlsm (openpyxl), .xls y .csv.
                 columnas por nombre, así sirve cualquiera de los dos formatos.
     077         reporte de documentos pendientes de cobro (fila de encabezado detectada sola).
     090         reporte de contratos de compra.
-    Ventas      Excel de compensas de corredores, hoja "Compensas Pendientes".
 """
 
 import csv
@@ -293,7 +292,7 @@ def cargar_historico(ruta) -> Lectura:
 # ---------------------------------------------------------------- 077
 
 COLUMNAS_077 = {
-    "cod_bp": (["Codigo BP Comercial"], False),            # A (las ventas llevan "VENTA")
+    "cod_bp": (["Codigo BP Comercial"], False),            # A
     "cod_cliente": (["Cod Cliente"], True),                # C
     "cliente": (["CLIENTE"], True),                        # D
     "tipo": (["COD TIPO DOC"], True),                      # F
@@ -357,53 +356,3 @@ def cargar_090(ruta) -> Lectura:
     if not registros:
         raise ErrorDeCarga(f"090 ({nombre}): no tiene contratos.")
     return Lectura(registros, [], str(ruta))
-
-
-# ---------------------------------------------------------------- Ventas (compensas de corredores)
-
-HOJA_VENTAS = "Compensas Pendientes"
-
-
-def cargar_ventas(ruta) -> Lectura:
-    """Columnas por posición, como la macro: B AB cliente, C cliente, D corredor, E AB corredor,
-    F "DOC INTERNO" (tipo y número separados por espacio o ;), K diferencia."""
-    filas = leer_hoja(ruta, HOJA_VENTAS)
-    avisos = []
-    datos = filas[1:]
-
-    # 1) Se borran las filas con F = "ESPERAR" (recorriendo hasta la primera F vacía).
-    filtradas = []
-    corte = False
-    for fila in datos:
-        doc = _valor(fila, 5)
-        if not corte and vacio(doc):
-            corte = True
-        if not corte and doc == "ESPERAR":
-            continue
-        filtradas.append(fila)
-
-    # 2) Se toman las filas desde la 2 hasta la primera con B vacía.
-    registros = []
-    for posicion, fila in enumerate(filtradas):
-        ab_cliente = _valor(fila, 1)
-        if vacio(ab_cliente):
-            break
-        texto_doc = str(_valor(fila, 5)).replace(" ", ";")
-        partes = texto_doc.split(";")
-        if len(partes) < 2:
-            avisos.append(
-                f"Ventas: la fila con AB cliente {ab_cliente} tiene el documento «{_valor(fila, 5)}» sin número; "
-                "la macro se detiene ahí, así que no se agregan esa venta ni las siguientes."
-            )
-            break
-        registros.append({
-            "ab_cliente": ab_cliente,
-            "cliente": _valor(fila, 2),
-            "corredor": _valor(fila, 3),
-            "ab_corredor": _valor(fila, 4),
-            "tipo": partes[0],
-            "nro": a_numero_si_se_puede(partes[1]),
-            "importe": _valor(fila, 10),
-            "fila_origen": posicion + 2,
-        })
-    return Lectura(registros, avisos, str(ruta))

@@ -108,13 +108,13 @@
       "nombre": "ENRIQUE R ZENI Y CIA SACIAFEI"
     }
   ],
-  "ultimo_numero_propuesta": 54640,
+  "ultimo_numero_propuesta": 54652,
   "cantidad_analistas": 1,
   "rutas": {
     "historico": "C:/Users/octav/Cargill-proyectos/macro-controles-gluco-v2/data/Historico_Documentos_Controlados.xlsb",
     "077": "C:/Users/octav/Cargill-proyectos/macro-controles-gluco-v2/data/077.xlsx",
     "090": "C:/Users/octav/Cargill-proyectos/macro-controles-gluco-v2/data/090.xlsx",
-    "ventas": "C:/Users/octav/Cargill-proyectos/macro-controles-gluco-v2/data/historico_pagados.xlsx",
-    "salida": "C:\\Users\\octav\\Cargill-proyectos\\macro-controles-gluco-v2\\data"
+    "salida": "C:\\Users\\octav\\Cargill-proyectos\\macro-controles-gluco-v2\\data",
+    "ventas": "C:/Users/octav/Cargill-proyectos/macro-controles-gluco-v2/data/historico_pagados.xlsx"
   }
 }

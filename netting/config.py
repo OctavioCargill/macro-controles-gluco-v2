@@ -53,7 +53,7 @@ CONFIG_POR_DEFECTO = {
     # hay que poner el número que tenga la macro en producción ese día.
     "ultimo_numero_propuesta": 54628,
     "cantidad_analistas": 1,
-    "rutas": {"historico": "", "077": "", "090": "", "ventas": "", "salida": ""},
+    "rutas": {"historico": "", "077": "", "090": "", "salida": ""},
 }
 
 

@@ -32,7 +32,7 @@ class ResultadoNetting:
 
 
 def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, progreso=None) -> ResultadoNetting:
-    """rutas: {"historico", "077", "090", "ventas"} → ResultadoNetting. Lanza cargas.ErrorDeCarga."""
+    """rutas: {"historico", "077", "090"} → ResultadoNetting. Lanza cargas.ErrorDeCarga."""
 
     def avanzar(texto):
         logger.info(texto)
@@ -53,19 +53,8 @@ def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, pro
     avanzar("Leyendo el 090…")
     reporte_090 = cargas.cargar_090(rutas["090"])
     avanzar(f"090: {len(reporte_090.filas)} contratos.")
-    if rutas.get("ventas"):
-        avanzar("Leyendo compensas de ventas…")
-        ventas = cargas.cargar_ventas(rutas["ventas"])
-        avanzar(f"Ventas: {len(ventas.filas)} compensas pendientes.")
-    else:
-        ventas = cargas.Lectura([], [], "")
-        avisos.agregar(
-            "Se armó SIN compensas de ventas: las propuestas de corredores no incluyen esos descuentos "
-            "(la macro sí los incluye).",
-            revisar=True,
-        )
     _avisar_archivos_viejos(rutas, fecha_proceso, avisos)
-    for lectura in (historico, reporte_077, reporte_090, ventas):
+    for lectura in (historico, reporte_077, reporte_090):
         for aviso in lectura.avisos:
             avisos.agregar(aviso, revisar=True)
 
@@ -80,8 +69,8 @@ def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, pro
     avanzar("Calculando días a pagar y tipo de beneficiario…")
     hist = preparar_historico(historico.filas, fecha_proceso, feriados, avisos)
 
-    avanzar("Preparando el 077 (cruce con 090 y ventas)…")
-    t077 = preparar_077(reporte_077.filas, reporte_090.filas, ventas.filas, avisos)
+    avanzar("Preparando el 077 (cruce con el 090)…")
+    t077 = preparar_077(reporte_077.filas, reporte_090.filas, avisos)
 
     solo_24 = {str(c.get("ab", "")).strip() for c in config.get("corredores_solo_24", []) if c.get("ab")}
     estado = Estado(t077=t077, t090=[dict(f) for f in reporte_090.filas],
@@ -143,7 +132,7 @@ def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, pro
 
 def _avisar_archivos_viejos(rutas, fecha_proceso, avisos):
     """Avisa si algún archivo se modificó por última vez antes de la fecha de proceso."""
-    nombres = {"historico": "Histórico", "077": "077", "090": "090", "ventas": "Compensas de ventas"}
+    nombres = {"historico": "Histórico", "077": "077", "090": "090"}
     for clave, nombre in nombres.items():
         ruta = rutas.get(clave)
         if not ruta:
@@ -156,7 +145,6 @@ def _avisar_archivos_viejos(rutas, fecha_proceso, avisos):
             avisos.agregar(
                 f"{nombre}: el archivo es del {modificado:%d/%m/%Y %H:%M}, anterior a la fecha de proceso "
                 f"({fecha_proceso:%d/%m/%Y}). ¿Es la versión del día?",
-                revisar=(clave == "ventas"),
             )
 
 
@@ -173,7 +161,6 @@ def generar_salida(resultado: ResultadoNetting, cantidad_analistas: int, carpeta
         ("Histórico", resultado.rutas.get("historico", "")),
         ("077", resultado.rutas.get("077", "")),
         ("090", resultado.rutas.get("090", "")),
-        ("Compensas de ventas", resultado.rutas.get("ventas", "") or "(sin compensas de ventas)"),
         ("Primer N° de propuesta", resultado.numero_inicial + 1),
         ("Último N° de propuesta", resultado.numero_final),
         ("Cantidad de analistas", cantidad_analistas),
