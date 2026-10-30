@@ -1453,7 +1453,10 @@ class PantallaLimpieza(ctk.CTkFrame):
     def ver_detalle(self, _event=None):
         documento = self._documento_seleccionado()
         if documento:
-            self.master.frames["visualizacion"].ver_detalle(numero_doc=documento)
+            self.master.mostrar_pantalla("visualizacion")
+            visual = self.master.frames["visualizacion"]
+            visual.seleccionar_documento(documento)
+            visual.ver_detalle(numero_doc=documento)
 
     def quitar_marca(self):
         documento = self._documento_seleccionado()

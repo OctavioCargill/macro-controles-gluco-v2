@@ -337,6 +337,12 @@ class App(ctk.CTk):
         """Vuelve a la pantalla anterior; si no hay historial, a la pantalla de la que cuelga."""
         if self._navegacion_bloqueada:
             return
+        # Si la pantalla tiene una vista interna abierta (p. ej. el detalle de una liquidación),
+        # Volver primero cierra esa vista.
+        actual = self.frames.get(self._pantalla_actual)
+        volver_interno = getattr(actual, "volver_interno", None)
+        if volver_interno and volver_interno():
+            return
         destino = self._historial.pop() if self._historial else PANTALLA_PADRE.get(self._pantalla_actual)
         if destino:
             self._pantalla_actual = destino

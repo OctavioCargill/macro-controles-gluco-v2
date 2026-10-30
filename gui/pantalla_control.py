@@ -79,8 +79,15 @@ class PantallaControl(ctk.CTkFrame):
 
         self._aplicar_estilo_tabla()
 
+        # La pantalla tiene dos vistas en el mismo lugar: la lista de liquidaciones y el
+        # detalle de una liquidación (antes el detalle se abría en otra ventana).
+        self._doc_detalle = None
+        self.vista_lista = ctk.CTkFrame(self, fg_color="transparent")
+        self.vista_lista.pack(fill="both", expand=True)
+        self.vista_detalle = ctk.CTkFrame(self, fg_color="transparent")
+
         titulo = ctk.CTkLabel(
-            self,
+            self.vista_lista,
             text="Visualizar liquidaciones",
             font=T.TITULO_PANTALLA,
             text_color=T.TEXTO
@@ -88,7 +95,7 @@ class PantallaControl(ctk.CTkFrame):
 
         titulo.pack(anchor="w", padx=8, pady=(18, 12))
 
-        self.frame_tarjetas = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_tarjetas = ctk.CTkFrame(self.vista_lista, fg_color="transparent")
         self.frame_tarjetas.pack(fill="x", pady=(0, 12))
 
         self.tarjeta_total = Tarjeta(self.frame_tarjetas, "DOCUMENTOS", 0, T.SERIE_TOTAL)
@@ -114,7 +121,7 @@ class PantallaControl(ctk.CTkFrame):
             tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0, 0 if columna == len(tarjetas) - 1 else 10), pady=8)
 
         self.frame_filtros = ctk.CTkFrame(
-            self,
+            self.vista_lista,
             corner_radius=18,
             fg_color=T.SUPERFICIE,
             border_width=1,
@@ -187,7 +194,7 @@ class PantallaControl(ctk.CTkFrame):
         self.combo_tipo.grid(row=0, column=3, padx=(0, 18), pady=18, sticky="w")
 
         self.frame_tabla = ctk.CTkFrame(
-            self,
+            self.vista_lista,
             corner_radius=18,
             fg_color=T.SUPERFICIE,
             border_width=1,
@@ -195,7 +202,8 @@ class PantallaControl(ctk.CTkFrame):
         )
         self.frame_tabla.pack(fill="both", expand=True, pady=(0, 10))
 
-        columnas = ("Numero Doc", "Tipo Doc", "Contrato", "Fecha Pago", "Total", "Controlado")
+        columnas = ("Nro Doc Interno", "Tipo Doc", "Tipo liquidación", "Contrato", "Fecha Pago", "Forma de pago",
+                    "Total", "Controlado")
         self.tabla = ttk.Treeview(
             self.frame_tabla,
             columns=columnas,
@@ -208,12 +216,14 @@ class PantallaControl(ctk.CTkFrame):
             self.tabla.heading(columna, text=columna)
             self.tabla.column(columna, anchor="center", width=160)
 
-        self.tabla.column("Numero Doc", width=130, anchor="center")
-        self.tabla.column("Tipo Doc", width=110, anchor="center")
-        self.tabla.column("Contrato", width=180, anchor="center")
-        self.tabla.column("Fecha Pago", width=130, anchor="center")
-        self.tabla.column("Total", width=180, anchor="e")
-        self.tabla.column("Controlado", width=120, anchor="center")
+        self.tabla.column("Nro Doc Interno", width=128, anchor="center", stretch=False)
+        self.tabla.column("Tipo Doc", width=75, anchor="center", stretch=False)
+        self.tabla.column("Tipo liquidación", width=210, anchor="w")
+        self.tabla.column("Contrato", width=115, anchor="center", stretch=False)
+        self.tabla.column("Fecha Pago", width=100, anchor="center", stretch=False)
+        self.tabla.column("Forma de pago", width=200, anchor="w")
+        self.tabla.column("Total", width=140, anchor="e", stretch=False)
+        self.tabla.column("Controlado", width=95, anchor="center", stretch=False)
 
         self.tabla.pack(side="left", fill="both", expand=True, padx=12, pady=12)
 
@@ -226,7 +236,7 @@ class PantallaControl(ctk.CTkFrame):
         self.tabla.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
         self.tabla.bind("<Double-1>", lambda event: self.ver_detalle())
 
-        self.frame_acciones = ctk.CTkFrame(self, fg_color="transparent")
+        self.frame_acciones = ctk.CTkFrame(self.vista_lista, fg_color="transparent")
         self.frame_acciones.pack(side="bottom", pady=(8, 12), before=self.frame_tabla)
 
         self.btn_detalle = ctk.CTkButton(
@@ -326,6 +336,18 @@ class PantallaControl(ctk.CTkFrame):
 
         return f"{numero:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
+    @staticmethod
+    def _texto_columna(fila, columnas):
+        """Primer valor no vacío entre varias columnas posibles, como texto limpio."""
+        for columna in columnas:
+            if columna in fila.index:
+                valor = fila.get(columna)
+                if valor is not None and not (isinstance(valor, float) and pd.isna(valor)):
+                    texto = re.sub(r"\s+", " ", str(valor)).strip()
+                    if texto and texto.lower() != "nan":
+                        return texto
+        return ""
+
     def toggle_controlado(self):
         seleccion = self.tabla.selection()
 
@@ -333,12 +355,16 @@ class PantallaControl(ctk.CTkFrame):
             return
 
         item = self.tabla.item(seleccion[0])
-        numero_doc = item["values"][0]
+        self._alternar_controlado(item["values"][0])
+
+    def _alternar_controlado(self, numero_doc):
+        """Marca o desmarca como controlada una liquidación y refresca la lista sin perder la selección."""
+        numero_doc = str(numero_doc).strip()
 
         if "CONTROLADO" not in self.df_original.columns:
             self.df_original["CONTROLADO"] = False
 
-        mask = self.df_original["Numero Doc"].astype(str) == str(numero_doc)
+        mask = self.df_original["Numero Doc"].astype(str).str.strip() == numero_doc
         self.df_original.loc[mask, "CONTROLADO"] = ~self.df_original.loc[mask, "CONTROLADO"].fillna(False).astype(bool)
 
         if hasattr(self.master, "df_procesado"):
@@ -347,6 +373,7 @@ class PantallaControl(ctk.CTkFrame):
         fecha_actual = self.combo_fecha.get()
         tipo_actual = self.combo_tipo.get()
         self.aplicar_filtros(fecha_actual, tipo_actual)
+        self.seleccionar_documento(numero_doc)
 
     def limpiar_controlados(self):
         if "CONTROLADO" not in self.df_original.columns:
@@ -435,54 +462,103 @@ class PantallaControl(ctk.CTkFrame):
         vendedor = obtener_valor(primer_fila, ["Nombre Vendedor", "Vendedor"], "-")
         corredor = obtener_valor(primer_fila, ["Nombre Corredor", "Corredor"], "-")
 
-        ventana = ctk.CTkToplevel(self)
-        ventana.title(f"Liquidación {numero_doc} - Control Glucovil")
-        ventana.geometry("1180x720")
-        ventana.minsize(1000, 620)
-        ventana.configure(fg_color=T.FONDO)
-        ventana.transient(self.winfo_toplevel())
-        ventana.grab_set()
-        ventana.bind("<Escape>", lambda _event: ventana.destroy())
+        total = primer_fila.get("Total a Pagar", None)
+        tipo_liquidacion = self._texto_columna(primer_fila, ("Tip Liquidacion", "Descripcion de la liquidacion")) or "-"
+        controlado = (
+            bool(detalle["CONTROLADO"].fillna(False).astype(bool).any()) if "CONTROLADO" in detalle.columns else False
+        )
 
-        cabecera = ctk.CTkFrame(ventana, fg_color=T.SUPERFICIE, corner_radius=0)
-        cabecera.pack(fill="x")
+        self._doc_detalle = numero_doc
+        for hijo in self.vista_detalle.winfo_children():
+            hijo.destroy()
 
+        # --- Cabecera: número, estado, total y acciones
+        cabecera = ctk.CTkFrame(
+            self.vista_detalle, fg_color=T.SUPERFICIE, corner_radius=18, border_width=1, border_color=T.BORDE
+        )
+        cabecera.pack(fill="x", pady=(8, 10))
+        cabecera.grid_columnconfigure(0, weight=1)
+
+        izquierda = ctk.CTkFrame(cabecera, fg_color="transparent")
+        izquierda.grid(row=0, column=0, sticky="w", padx=20, pady=(14, 4))
+        ctk.CTkLabel(izquierda, text="CONTROL · GLUCOVIL", font=T.ETIQUETA_CHICA, text_color=T.MARCA).pack(anchor="w")
+        fila_titulo = ctk.CTkFrame(izquierda, fg_color="transparent")
+        fila_titulo.pack(anchor="w")
         ctk.CTkLabel(
-            cabecera,
-            text="CONTROL · GLUCOVIL",
-            font=T.ETIQUETA_CHICA,
-            text_color=T.MARCA
-        ).pack(anchor="w", padx=24, pady=(16, 0))
-
-        fila_titulo = ctk.CTkFrame(cabecera, fg_color="transparent")
-        fila_titulo.pack(fill="x", padx=24, pady=(2, 16))
-
-        ctk.CTkLabel(
-            fila_titulo,
-            text=f"Liquidación {numero_doc}",
-            font=T.TITULO_PANTALLA,
-            text_color=T.TEXTO
+            fila_titulo, text=f"Liquidación {numero_doc}", font=T.TITULO_PANTALLA, text_color=T.TEXTO
         ).pack(side="left")
-
-        ctk.CTkButton(
+        ctk.CTkLabel(
             fila_titulo,
-            text="Cerrar",
-            command=ventana.destroy,
-            width=120,
-            height=36,
-            corner_radius=T.RADIO_BOTON,
-            fg_color=T.SECUNDARIO, text_color=T.TEXTO_SOBRE_SECUNDARIO,
-            hover_color=T.SECUNDARIO_HOVER,
-            font=T.BOTON
-        ).pack(side="right")
+            text="  ✓ Controlada  " if controlado else "  Pendiente de control  ",
+            font=T.ETIQUETA_CHICA,
+            text_color=T.OK if controlado else T.AVISO,
+            fg_color=T.OK_FONDO if controlado else T.AVISO_FONDO,
+            corner_radius=8,
+        ).pack(side="left", padx=14)
+        ctk.CTkLabel(
+            izquierda,
+            text=f"{tipo_liquidacion}  ·  {tipo_doc}  ·  Pago {fecha_pago}",
+            font=T.CUERPO,
+            text_color=T.TEXTO_SECUNDARIO,
+        ).pack(anchor="w", pady=(2, 0))
 
-        ctk.CTkFrame(ventana, fg_color=T.BORDE, height=1, corner_radius=0).pack(fill="x")
+        derecha = ctk.CTkFrame(cabecera, fg_color="transparent")
+        derecha.grid(row=0, column=1, sticky="e", padx=20, pady=(14, 4))
+        ctk.CTkLabel(derecha, text="Total a pagar", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_TENUE).pack(anchor="e")
+        ctk.CTkLabel(
+            derecha, text=formatear_importe(total), font=(T.FUENTE, 28, "bold"), text_color=T.TEXTO
+        ).pack(anchor="e")
 
-        contenido = ctk.CTkScrollableFrame(ventana, width=1140, height=640, fg_color=T.FONDO)
-        contenido.pack(fill="both", expand=True, padx=18, pady=18)
+        acciones = ctk.CTkFrame(cabecera, fg_color="transparent")
+        acciones.grid(row=1, column=0, columnspan=2, sticky="ew", padx=20, pady=(8, 16))
+        estilo_secundario = dict(
+            height=38, corner_radius=T.RADIO_BOTON, font=T.BOTON,
+            fg_color=T.SECUNDARIO, hover_color=T.SECUNDARIO_HOVER, text_color=T.TEXTO_SOBRE_SECUNDARIO,
+        )
+        ctk.CTkButton(acciones, text="←  Volver a la lista", command=self.cerrar_detalle, width=180,
+                      **estilo_secundario).pack(side="left")
 
-        contenido.grid_columnconfigure(0, weight=1)
-        contenido.grid_columnconfigure(1, weight=1)
+        documentos = [
+            str(self.tabla.item(item_id, "values")[0]).strip() for item_id in self.tabla.get_children()
+        ]
+        posicion = documentos.index(numero_doc) if numero_doc in documentos else None
+        anterior = documentos[posicion - 1] if posicion not in (None, 0) else None
+        siguiente = documentos[posicion + 1] if posicion is not None and posicion + 1 < len(documentos) else None
+        ctk.CTkButton(acciones, text="‹  Anterior", width=120, state="normal" if anterior else "disabled",
+                      command=lambda: self._abrir_vecino(anterior), **estilo_secundario).pack(side="left", padx=(12, 6))
+        ctk.CTkButton(acciones, text="Siguiente  ›", width=120, state="normal" if siguiente else "disabled",
+                      command=lambda: self._abrir_vecino(siguiente), **estilo_secundario).pack(side="left")
+        if posicion is not None:
+            ctk.CTkLabel(
+                acciones, text=f"{posicion + 1} de {len(documentos)} en la lista",
+                font=T.CUERPO_CHICO, text_color=T.TEXTO_TENUE,
+            ).pack(side="left", padx=12)
+
+        if controlado:
+            ctk.CTkButton(
+                acciones, text="Quitar marca", width=150,
+                command=lambda: self._marcar_desde_detalle(numero_doc), **estilo_secundario,
+            ).pack(side="right")
+        else:
+            if siguiente:
+                ctk.CTkButton(
+                    acciones, text="Controlada y siguiente  ›", width=210, height=38, corner_radius=T.RADIO_BOTON,
+                    font=T.BOTON, fg_color="transparent", hover_color=T.SUPERFICIE_ELEVADA, border_width=1,
+                    border_color=T.EXITO, text_color=T.EXITO,
+                    command=lambda: self._marcar_desde_detalle(numero_doc, abrir=siguiente),
+                ).pack(side="right", padx=(8, 0))
+            ctk.CTkButton(
+                acciones, text="✓  Marcar como controlada", width=230, height=38, corner_radius=T.RADIO_BOTON,
+                font=T.BOTON, fg_color=T.EXITO, hover_color=T.EXITO_HOVER, text_color=T.TEXTO_SOBRE_COLOR,
+                command=lambda: self._marcar_desde_detalle(numero_doc),
+            ).pack(side="right")
+
+        # --- Datos de la liquidación
+        contenido = ctk.CTkScrollableFrame(self.vista_detalle, fg_color=T.FONDO)
+        contenido.pack(fill="both", expand=True)
+
+        for columna in range(3):
+            contenido.grid_columnconfigure(columna, weight=1, uniform="datos")
 
         contrato = obtener_valor(primer_fila, ["Contrato"], "-")
         kilos = obtener_valor(primer_fila, ["Unidades", "Kilos"], "-")
@@ -497,6 +573,9 @@ class PantallaControl(ctk.CTkFrame):
         id_solicitado = obtener_valor(primer_fila, ["id_largo", "ID solicitado", "Id solicitado"], "-")
 
         info = [
+            ("Total a pagar:", formatear_importe(total)),
+            ("Tipo liquidación:", tipo_liquidacion),
+            ("Forma de Pago:", forma_pago),
             ("Contrato:", contrato),
             ("Kilos:", kilos),
             ("Conforme:", conforme),
@@ -505,7 +584,6 @@ class PantallaControl(ctk.CTkFrame):
             ("Nro. Legal (COE):", nro_legal),
             ("Estado Liq.:", estado_liq),
             ("Obs. de Pago:", obs_pago),
-            ("Forma de Pago:", forma_pago),
             ("Fecha de Pago:", fecha_pago),
             ("Vendedor:", vendedor),
             ("Corredor:", corredor),
@@ -521,9 +599,9 @@ class PantallaControl(ctk.CTkFrame):
                 corner_radius=12,
                 border_width=1,
                 border_color=T.BORDE,
-                height=96
+                height=78
             )
-            fila.grid(row=idx // 2, column=idx % 2, padx=12, pady=8, sticky="nsew")
+            fila.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nsew")
             fila.grid_propagate(False)
             fila.grid_columnconfigure(0, weight=1)
 
@@ -539,12 +617,12 @@ class PantallaControl(ctk.CTkFrame):
             ctk.CTkLabel(
                 fila,
                 text=str(valor),
-                font=(T.FUENTE, 16, "bold"),
+                font=(T.FUENTE, 14, "bold"),
                 text_color=T.TEXTO,
                 anchor="w",
                 justify="left",
-                wraplength=440
-            ).grid(row=1, column=0, sticky="w", padx=14, pady=(4, 12))
+                wraplength=320
+            ).grid(row=1, column=0, sticky="w", padx=14, pady=(2, 10))
 
         def obtener_columna_flexible(fila, columnas):
             for columna in columnas:
@@ -681,7 +759,7 @@ class PantallaControl(ctk.CTkFrame):
             border_width=1,
             border_color=T.BORDE
         )
-        retenciones_panel.grid(row=100, column=0, columnspan=2, sticky="ew", padx=12, pady=(18, 12))
+        retenciones_panel.grid(row=100, column=0, columnspan=3, sticky="ew", padx=6, pady=(12, 12))
 
         ctk.CTkLabel(
             retenciones_panel,
@@ -737,7 +815,36 @@ class PantallaControl(ctk.CTkFrame):
                     )
                 )
 
-        ventana.protocol("WM_DELETE_WINDOW", ventana.destroy)
+        self.vista_lista.pack_forget()
+        self.vista_detalle.pack(fill="both", expand=True)
+
+    def detalle_abierto(self):
+        return self._doc_detalle is not None
+
+    def cerrar_detalle(self):
+        """Vuelve a la lista dejando seleccionada la liquidación que se estaba viendo."""
+        documento = self._doc_detalle
+        self._doc_detalle = None
+        self.vista_detalle.pack_forget()
+        self.vista_lista.pack(fill="both", expand=True)
+        if documento:
+            self.seleccionar_documento(documento)
+
+    def volver_interno(self):
+        """Lo usa el botón Volver de la app: si hay un detalle abierto, primero vuelve a la lista."""
+        if self.detalle_abierto():
+            self.cerrar_detalle()
+            return True
+        return False
+
+    def _abrir_vecino(self, numero_doc):
+        if numero_doc:
+            self.seleccionar_documento(numero_doc)
+            self.ver_detalle(numero_doc=numero_doc)
+
+    def _marcar_desde_detalle(self, numero_doc, abrir=None):
+        self._alternar_controlado(numero_doc)
+        self.ver_detalle(numero_doc=abrir or numero_doc)
 
     def actualizar(self, total, macro, manual, parciales, finales, comisiones, ajustes):
 
@@ -750,6 +857,9 @@ class PantallaControl(ctk.CTkFrame):
         self.tarjeta_ajustes.actualizar(ajustes)
 
     def cargar_dataframe(self, df):
+
+        if self.detalle_abierto():
+            self.cerrar_detalle()
 
         self.df_original = df.copy()
 
@@ -807,6 +917,8 @@ class PantallaControl(ctk.CTkFrame):
 
             valor_total = fila.get("Total a Pagar", 0)
             controlado = bool(fila.get("CONTROLADO", False))
+            tipo_liquidacion = self._texto_columna(fila, ("Tip Liquidacion", "Descripcion de la liquidacion"))
+            forma_pago = self._texto_columna(fila, ("Condicion de Pago", "Forma de Pago", "Pago Contra"))
             tag = "par" if idx % 2 == 0 else "impar"
 
             self.tabla.insert(
@@ -815,8 +927,10 @@ class PantallaControl(ctk.CTkFrame):
                 values=(
                     fila.get("Numero Doc", ""),
                     fila.get("Tipo Doc", ""),
+                    tipo_liquidacion,
                     fila.get("Contrato", ""),
                     fecha_str,
+                    forma_pago,
                     self._formatear_numero(valor_total),
                     "SI" if controlado else "NO",
                 ),
