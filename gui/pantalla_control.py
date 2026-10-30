@@ -1,5 +1,6 @@
 import logging
 import re
+import tkinter as tk
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -235,6 +236,9 @@ class PantallaControl(ctk.CTkFrame):
 
         self.tabla.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
         self.tabla.bind("<Double-1>", lambda event: self.ver_detalle())
+        self.tabla.bind("<Control-c>", lambda _event: self._copiar_celda_lista())
+        self.tabla.bind("<Control-C>", lambda _event: self._copiar_celda_lista())
+        self.tabla.bind("<Button-3>", self._menu_lista)
 
         self.frame_acciones = ctk.CTkFrame(self.vista_lista, fg_color="transparent")
         self.frame_acciones.pack(side="bottom", pady=(8, 12), before=self.frame_tabla)
@@ -553,6 +557,24 @@ class PantallaControl(ctk.CTkFrame):
                 command=lambda: self._marcar_desde_detalle(numero_doc),
             ).pack(side="right")
 
+        comparar = ctk.CTkFrame(cabecera, fg_color=T.SUPERFICIE_HUNDIDA, corner_radius=12)
+        comparar.grid(row=2, column=0, columnspan=2, sticky="ew", padx=20, pady=(0, 16))
+        ctk.CTkLabel(
+            comparar, text="Comparar con la PowerApp", font=T.ETIQUETA, text_color=T.TEXTO_SUAVE
+        ).pack(side="left", padx=(14, 10), pady=10)
+        self.ent_comparar = ctk.CTkEntry(
+            comparar, width=300, placeholder_text="Pegá el COE, el total u otro dato…",
+            fg_color=T.SUPERFICIE, border_color=T.BORDE_FUERTE, text_color=T.TEXTO,
+        )
+        self.ent_comparar.pack(side="left", pady=10)
+        self.ent_comparar.bind("<KeyRelease>", lambda _e: self._comparar_dato())
+        self.ent_comparar.bind("<<Paste>>", lambda _e: self.after(10, self._comparar_dato))
+        self.lbl_comparar = ctk.CTkLabel(
+            comparar, text="Hacé clic en cualquier dato para copiarlo.", font=T.CUERPO_CHICO,
+            text_color=T.TEXTO_TENUE, anchor="w",
+        )
+        self.lbl_comparar.pack(side="left", padx=12, pady=10)
+
         # --- Datos de la liquidación
         contenido = ctk.CTkScrollableFrame(self.vista_detalle, fg_color=T.FONDO)
         contenido.pack(fill="both", expand=True)
@@ -592,6 +614,7 @@ class PantallaControl(ctk.CTkFrame):
             ("ID solicitado:", id_solicitado),
         ]
 
+        self._tarjetas_detalle = []
         for idx, (label, valor) in enumerate(info):
             fila = ctk.CTkFrame(
                 contenido,
@@ -605,16 +628,20 @@ class PantallaControl(ctk.CTkFrame):
             fila.grid_propagate(False)
             fila.grid_columnconfigure(0, weight=1)
 
-            ctk.CTkLabel(
+            lbl_titulo = ctk.CTkLabel(
                 fila,
                 text=str(label).rstrip(":"),
                 font=T.ETIQUETA_CHICA,
                 text_color=T.TEXTO_TENUE,
                 anchor="w",
                 justify="left"
-            ).grid(row=0, column=0, sticky="w", padx=14, pady=(10, 0))
+            )
+            lbl_titulo.grid(row=0, column=0, sticky="w", padx=14, pady=(10, 0))
 
-            ctk.CTkLabel(
+            lbl_copiar = ctk.CTkLabel(fila, text="", font=T.NOTA, text_color=T.ENLACE, anchor="e")
+            lbl_copiar.grid(row=0, column=1, sticky="e", padx=(0, 12), pady=(10, 0))
+
+            lbl_valor = ctk.CTkLabel(
                 fila,
                 text=str(valor),
                 font=(T.FUENTE, 14, "bold"),
@@ -622,7 +649,20 @@ class PantallaControl(ctk.CTkFrame):
                 anchor="w",
                 justify="left",
                 wraplength=320
-            ).grid(row=1, column=0, sticky="w", padx=14, pady=(2, 10))
+            )
+            lbl_valor.grid(row=1, column=0, columnspan=2, sticky="w", padx=14, pady=(2, 10))
+
+            tarjeta = {
+                "titulo": str(label).rstrip(":"), "valor": str(valor), "frame": fila, "aviso": lbl_copiar,
+            }
+            self._tarjetas_detalle.append(tarjeta)
+            copiable = str(valor).strip() not in ("", "-")
+            for widget in (fila, lbl_titulo, lbl_valor, lbl_copiar):
+                if copiable:
+                    widget.configure(cursor="hand2")
+                    widget.bind("<Button-1>", lambda _e, t=tarjeta: self._copiar_tarjeta(t))
+                widget.bind("<Enter>", lambda _e, t=tarjeta, c=copiable: self._hover_tarjeta(t, True, c))
+                widget.bind("<Leave>", lambda _e, t=tarjeta, c=copiable: self._hover_tarjeta(t, False, c))
 
         def obtener_columna_flexible(fila, columnas):
             for columna in columnas:
@@ -817,6 +857,146 @@ class PantallaControl(ctk.CTkFrame):
 
         self.vista_lista.pack_forget()
         self.vista_detalle.pack(fill="both", expand=True)
+
+    # ------------------------------------------------------------------ copiar y comparar
+    def _al_portapapeles(self, texto):
+        self.clipboard_clear()
+        self.clipboard_append(texto)
+        self.update_idletasks()
+
+    @staticmethod
+    def _texto_para_copiar(tarjeta):
+        valor = tarjeta["valor"].strip()
+        # Los importes se copian sin el signo $ (más fácil de pegar en buscadores y en Excel).
+        return valor.replace("$ ", "").replace("$", "").strip() if "$" in valor else valor
+
+    def _copiar_tarjeta(self, tarjeta):
+        texto = self._texto_para_copiar(tarjeta)
+        self._al_portapapeles(texto)
+        aviso = tarjeta["aviso"]
+        aviso.configure(text="✓ Copiado", text_color=T.OK)
+        tarjeta["frame"].configure(border_color=T.OK)
+        if hasattr(self, "lbl_comparar"):
+            self.lbl_comparar.configure(text=f"Copiado: {tarjeta['titulo']} · {texto}", text_color=T.OK)
+
+        def restaurar():
+            if aviso.winfo_exists():
+                aviso.configure(text="", text_color=T.ENLACE)
+                if not tarjeta.get("coincide"):
+                    tarjeta["frame"].configure(border_color=T.BORDE)
+
+        self.after(1500, restaurar)
+
+    @staticmethod
+    def _hover_tarjeta(tarjeta, dentro, copiable):
+        if tarjeta.get("coincide"):
+            return
+        tarjeta["frame"].configure(fg_color=T.SUPERFICIE_ELEVADA if dentro else T.SUPERFICIE)
+        if copiable and tarjeta["aviso"].cget("text") in ("", "⧉ Copiar"):
+            tarjeta["aviso"].configure(text="⧉ Copiar" if dentro else "")
+
+    @staticmethod
+    def _normalizar_codigo(texto):
+        texto = re.sub(r"[\s\-./$]", "", str(texto)).casefold()
+        return texto.lstrip("0") or texto
+
+    @staticmethod
+    def _a_importe(texto):
+        texto = re.sub(r"[\s$]", "", str(texto))
+        if not re.fullmatch(r"-?[\d.,]+", texto or ""):
+            return None
+        if "," in texto and "." in texto:
+            decimal = "," if texto.rfind(",") > texto.rfind(".") else "."
+            miles = "." if decimal == "," else ","
+            texto = texto.replace(miles, "").replace(decimal, ".")
+        elif "," in texto:
+            texto = texto.replace(",", ".") if re.search(r",\d{1,2}$", texto) else texto.replace(",", "")
+        elif re.fullmatch(r"-?\d{1,3}(\.\d{3})+", texto):
+            texto = texto.replace(".", "")
+        try:
+            return float(texto)
+        except ValueError:
+            return None
+
+    def _comparar_dato(self):
+        """Busca el dato pegado entre los de la liquidación y resalta la tarjeta que coincide."""
+        buscado = self.ent_comparar.get().strip()
+        tarjetas = getattr(self, "_tarjetas_detalle", [])
+        for tarjeta in tarjetas:
+            tarjeta["coincide"] = False
+            tarjeta["frame"].configure(border_color=T.BORDE, border_width=1, fg_color=T.SUPERFICIE)
+        if not buscado:
+            self.lbl_comparar.configure(text="Hacé clic en cualquier dato para copiarlo.", text_color=T.TEXTO_TENUE)
+            return
+
+        codigo = self._normalizar_codigo(buscado)
+        importe = self._a_importe(buscado)
+        coincidencias = []
+        for tarjeta in tarjetas:
+            valor = tarjeta["valor"].strip()
+            if valor in ("", "-"):
+                continue
+            iguales = self._normalizar_codigo(valor) == codigo
+            if not iguales and importe is not None and tarjeta["titulo"] in ("Total a pagar", "Kilos"):
+                valor_num = self._a_importe(valor)
+                iguales = valor_num is not None and abs(abs(valor_num) - abs(importe)) < 0.005
+            if iguales:
+                tarjeta["coincide"] = True
+                tarjeta["frame"].configure(border_color=T.OK, border_width=2, fg_color=T.OK_FONDO)
+                coincidencias.append(tarjeta["titulo"])
+
+        if coincidencias:
+            self.lbl_comparar.configure(text=f"✓ Coincide con {', '.join(coincidencias)}", text_color=T.OK)
+        else:
+            self.lbl_comparar.configure(
+                text="✗ No coincide con ningún dato de esta liquidación", text_color=T.ERROR
+            )
+
+    def _copiar_celda_lista(self, columna=None):
+        seleccion = self.tabla.selection()
+        if not seleccion:
+            return
+        valores = self.tabla.item(seleccion[0], "values")
+        if not valores:
+            return
+        indice = 0 if columna is None else columna
+        texto = str(valores[indice]).strip()
+        self._al_portapapeles(texto)
+        titulo = self.tabla["columns"][indice]
+        self.mostrar_estado(f"Copiado {titulo}: {texto}", T.OK)
+
+    def _menu_lista(self, evento):
+        fila = self.tabla.identify_row(evento.y)
+        if not fila:
+            return
+        self.tabla.selection_set(fila)
+        self.tabla.focus(fila)
+        columna = self.tabla.identify_column(evento.x)
+        indice = int(columna.replace("#", "")) - 1 if columna else 0
+        valores = self.tabla.item(fila, "values")
+        titulos = self.tabla["columns"]
+
+        menu = tk.Menu(
+            self, tearoff=0, bg=T.SUPERFICIE, fg=T.TEXTO, activebackground=T.PRIMARIO,
+            activeforeground=T.TEXTO_SOBRE_COLOR, font=(T.FUENTE, 10), bd=0,
+        )
+        if 0 <= indice < len(valores) and indice != 0:
+            menu.add_command(
+                label=f"Copiar {titulos[indice]}: {valores[indice]}",
+                command=lambda: self._copiar_celda_lista(indice),
+            )
+        menu.add_command(label=f"Copiar Nro Doc Interno: {valores[0]}", command=lambda: self._copiar_celda_lista(0))
+        menu.add_command(
+            label="Copiar fila completa",
+            command=lambda: (self._al_portapapeles("\t".join(str(v) for v in valores)),
+                             self.mostrar_estado("Fila copiada (se pega en Excel en columnas).", T.OK)),
+        )
+        menu.add_separator()
+        menu.add_command(label="Ver detalle", command=lambda: self.ver_detalle())
+        try:
+            menu.tk_popup(evento.x_root, evento.y_root)
+        finally:
+            menu.grab_release()
 
     def detalle_abierto(self):
         return self._doc_detalle is not None
