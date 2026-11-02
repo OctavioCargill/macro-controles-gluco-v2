@@ -37,3 +37,6 @@ output/*.csv
 # Windows
 Thumbs.db
 Desktop.ini
+
+# Configuración local de Netting (rutas de cada PC y último N° de propuesta)
+config/netting.json

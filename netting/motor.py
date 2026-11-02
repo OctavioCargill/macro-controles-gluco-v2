@@ -218,6 +218,9 @@ class Estado:
     ultimo_numero: int
     solo_24: set
     avisos: Avisos
+    # True: un paquete (N° de propuesta) por AB beneficiario, como pidieron las dueñas.
+    # False: numeración original de la macro (separa comisiones, cesiones y directos).
+    agrupar_por_ab: bool = True
 
 
 def _fila_pagar(origen, primera, ventana, vendedor_de_primera=False):
@@ -241,6 +244,8 @@ def _fila_pagar(origen, primera, ventana, vendedor_de_primera=False):
         "ventana": ventana,
         "id_largo": origen.get("id_largo", ""),
         "origen": "Histórico",
+        "fecha_pago": origen.get("fecha_pago"),
+        "estatus": origen.get("estatus", ""),
     }
     if total is None:
         fila["total"] = None
@@ -267,6 +272,8 @@ def _fila_cobrar(doc077, tipo_benef, ab_corredor, corredor, ab_vendedor, vendedo
         "ventana": ventana,
         "id_largo": "",
         "origen": "077",
+        "fecha_pago": None,
+        "estatus": "",
     }
 
 
@@ -488,12 +495,44 @@ def numerar(propuestas, estado: Estado, ventana):
     estado.ultimo_numero = cont - 1
 
 
+def _clave_ab(fila):
+    ab = fila["ab_benef"]
+    if not vacio(ab):
+        return ("ab", _texto_celda(ab).strip())
+    return ("nombre", _texto_celda(fila["benef"]).strip().casefold())
+
+
+def agrupar_por_ab(propuestas, estado: Estado):
+    """Un paquete de pago por AB beneficiario: todo lo que se le paga y todo lo que se le descuenta.
+
+    Los paquetes se numeran en el orden en que aparece cada AB; dentro de cada paquete van
+    primero los documentos a pagar y después los descuentos. Devuelve la lista reordenada.
+    """
+    paquetes = {}
+    for fila in propuestas:
+        paquetes.setdefault(_clave_ab(fila), []).append(fila)
+    ordenadas = []
+    numero = estado.ultimo_numero
+    for filas in paquetes.values():
+        numero += 1
+        a_pagar = [f for f in filas if f["tipo"] == PAGAR]
+        descuentos = [f for f in filas if f["tipo"] != PAGAR]
+        for fila in a_pagar + descuentos:
+            fila["n_propuesta"] = numero
+            ordenadas.append(fila)
+    estado.ultimo_numero = numero
+    return ordenadas
+
+
 def armar_propuestas(hist, estado: Estado, ventana):
     """Botón PROPUESTA 24/48 HS completo: liquidaciones + comisiones + numeración."""
     propuestas = armar_liquidaciones(hist, estado, ventana)
     propuestas += armar_comisiones(hist, estado, ventana)
     desde = estado.ultimo_numero + 1
-    numerar(propuestas, estado, ventana)
+    if estado.agrupar_por_ab:
+        propuestas = agrupar_por_ab(propuestas, estado)
+    else:
+        numerar(propuestas, estado, ventana)
     sin_total = [p for p in propuestas if p["total"] is None]
     if sin_total:
         estado.avisos.agregar(

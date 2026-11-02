@@ -11,8 +11,10 @@ from netting.motor import (
     Avisos, Estado, armar_comisiones, armar_propuestas, clasificar_beneficiario, numerar,
     preparar_077, preparar_historico,
 )
-from netting.salida import asignar_grupos, resumen_propuestas
-from netting.servicio import ejecutar_netting, generar_salida
+from netting.salida import asignar_grupos, datos_para_e1, poner_observaciones, resumen_propuestas
+from netting.servicio import (
+    _validar_estatus, ejecutar_netting, generar_salida, guardar_datos_paquete, resumen_por_fecha_de_pago,
+)
 
 FERIADOS = {date(2026, 11, 23)}
 
@@ -190,42 +192,117 @@ def archivos(tmp_path):
 CONFIG = {"feriados": ["2026-01-01", "2026-11-23"], "corredores_solo_24": [], "rutas": {}}
 
 
-def test_corrida_completa(archivos, tmp_path, monkeypatch):
-    resultado = ejecutar_netting(archivos, HOY, 1000, CONFIG)
+@pytest.fixture
+def config(tmp_path, monkeypatch):
+    monkeypatch.setattr("netting.servicio.guardar_config", lambda c: None)
+    return dict(CONFIG, rutas={"pagados": str(tmp_path / "historico_pagados.xlsx"),
+                                "registro": str(tmp_path / "Netting_Propuestos.xlsx")})
+
+
+def _docs(filas, tipo):
+    return sorted(f["doc"] for f in filas if f["tipo"] == tipo)
+
+
+def test_corrida_completa_un_paquete_por_ab(archivos, tmp_path, config):
+    resultado = ejecutar_netting(archivos, HOY, 1000, config)
     p24, p48 = resultado.propuestas_24, resultado.propuestas_48
 
-    def docs(filas, tipo):
-        return sorted(f["doc"] for f in filas if f["tipo"] == tipo)
-
     # 24 hs: liquidaciones 1001, 1002, 1003, 1005 y la comisión 1006; no entran 1004 (48), 1007 (>48), 1008 (X)
-    assert docs(p24, "PAGAR") == [1001, 1002, 1003, 1005, 1006]
+    assert _docs(p24, "PAGAR") == [1001, 1002, 1003, 1005, 1006]
     # Descuentos: 7001 y 7002 del corredor (con contrato en el 090) y 7004 del vendedor directo
-    assert docs(p24, "COBRAR") == [7001, 7002, 7004]
+    assert _docs(p24, "COBRAR") == [7001, 7002, 7004]
     cobrar = {f["doc"]: f for f in p24 if f["tipo"] == "COBRAR"}
     assert cobrar[7001]["total"] == -100.0          # el 077 se descuenta con signo negativo
-    assert cobrar[7001]["benef"] == "AGRO SUR SA"
 
-    # Propuestas: AGRO SUR (liquidaciones + descuentos), LA ESTANCIA, cesión, comisión AGRO SUR aparte
+    # Un paquete por AB: AGRO SUR (liquidaciones + comisión + descuentos), LA ESTANCIA y la cesión a BANCO X
     resumen = resultado.resumen("24")
-    por_benef = {(r["benef"], r["filas"][0]["tipo_doc"]): r for r in resumen}
-    agro = por_benef[("AGRO SUR SA", "L#")]
-    assert agro["a_pagar"] == 3000.0 and agro["a_descontar"] == -140.0
-    assert por_benef[("LA ESTANCIA", "L#")]["neto"] == 5000.0 - 60.0
-    assert por_benef[("BANCO X", "L#")]["documentos"] == 1
-    assert [r["n_propuesta"] for r in resumen] == list(range(1001, 1001 + len(resumen)))
+    paquetes = {r["ab_benef"]: r for r in resumen}
+    assert set(paquetes) == {500, 902, 950}
+    agro = paquetes[500]
+    assert sorted(f["doc"] for f in agro["filas"]) == [1001, 1002, 1006, 7001, 7002]
+    assert agro["a_pagar"] == 3050.0 and agro["a_descontar"] == -140.0 and agro["neto"] == 2910.0
+    assert paquetes[902]["neto"] == 5000.0 - 60.0
+    assert [r["n_propuesta"] for r in resumen] == [1001, 1002, 1003]
+    # Dentro de cada paquete: primero lo que se paga y después los descuentos
+    assert [f["tipo"] for f in agro["filas"]] == ["PAGAR", "PAGAR", "PAGAR", "COBRAR", "COBRAR"]
 
-    # 48 hs: el corredor directo 1004, sin descuentos
-    assert docs(p48, "PAGAR") == [1004] and docs(p48, "COBRAR") == []
-    assert resultado.numero_final == 1000 + len(resumen) + 1
+    assert _docs(p48, "PAGAR") == [1004] and _docs(p48, "COBRAR") == []
+    assert resultado.numero_final == 1004
 
-    # Salida
-    monkeypatch.setattr("netting.servicio.guardar_config", lambda c: None)
-    ruta = generar_salida(resultado, 2, tmp_path, dict(CONFIG))
+    # Salida: paquetes por AB, detalle plano y control
+    poner_observaciones(agro, "Revisar retención")
+    ruta = generar_salida(resultado, 2, tmp_path, config)
     libro = openpyxl.load_workbook(ruta)
-    assert libro.sheetnames == ["Propuestas_24", "Propuestas_48", "Control"]
+    assert libro.sheetnames == ["Propuestas_24", "Propuestas_48", "Detalle_24", "Detalle_48", "Control"]
     hoja = libro["Propuestas_24"]
-    assert [c.value for c in hoja[1]][14] == "N_PROPUESTA"
-    assert hoja.max_row == len(p24) + 1
+    filas = [[c.value for c in fila] for fila in hoja.iter_rows()]
+    cabeceras = [f for f in filas if f[4] == "PAQUETE"]
+    assert [(f[0], f[1], f[12]) for f in cabeceras] == [(1001, 500, 2910), (1002, 902, 4940), (1003, 950, 300)]
+    assert cabeceras[0][14] == "Revisar retención"
+    assert any(f[4] == "CUENTAS POR COBRAR" for f in filas) and any(f[4] == "CUENTA POR PAGAR" for f in filas)
+    assert libro["Detalle_24"].max_row == len(p24) + 1
+
+
+def test_lo_propuesto_no_vuelve_a_entrar_hasta_liberarse(archivos, tmp_path, config):
+    primera = ejecutar_netting(archivos, HOY, 1000, config)
+    generar_salida(primera, 1, tmp_path, config)
+    generar_salida(primera, 1, tmp_path, config)  # regenerar el archivo no duplica el registro
+    registro = openpyxl.load_workbook(config["rutas"]["registro"])["Propuestos"]
+    assert registro.max_row - 1 == len(primera.propuestas_24) + len(primera.propuestas_48)
+
+    segunda = ejecutar_netting(archivos, HOY, primera.numero_final, config)
+    assert segunda.propuestas_24 == [] and segunda.propuestas_48 == []
+    assert segunda.estadisticas["excluidos_propuestos_hist"] == 6
+    assert segunda.estadisticas["excluidos_propuestos_077"] == 3
+
+    sin_bloqueo = ejecutar_netting(archivos, HOY, primera.numero_final, dict(config, bloquear_propuestos=False))
+    assert _docs(sin_bloqueo.propuestas_24, "PAGAR") == [1001, 1002, 1003, 1005, 1006]
+
+
+def test_lo_pagado_queda_afuera(archivos, tmp_path, config):
+    _xlsx(config["rutas"]["pagados"], ["id_largo", "id_corto"], [["ID1001", None], [None, "X"]])
+    resultado = ejecutar_netting(archivos, HOY, 1000, config)
+    assert 1001 not in _docs(resultado.propuestas_24, "PAGAR")
+    assert resultado.estadisticas["excluidos_pagados"] == 1
+
+
+def test_datos_para_buscar_en_e1():
+    corredor = dict(tipo_benef="CORREDOR-DIRECTO", ab_corredor=501, ab_benef=903)
+    assert datos_para_e1(corredor) == {"buscar_por": "CORREDOR", "campo_e1": "Corredor", "ab_e1": 501}
+    vendedor = dict(tipo_benef="VENDEDOR", ab_corredor=0, ab_benef=902)
+    assert datos_para_e1(vendedor) == {"buscar_por": "VENDEDOR", "campo_e1": "Cliente", "ab_e1": 902}
+
+
+def test_id_de_pago_y_accion_quedan_en_el_registro(archivos, tmp_path, config):
+    resultado = ejecutar_netting(archivos, HOY, 1000, config)
+    assert {f["grupo"] for f in resultado.propuestas_24} == {1}   # grupos asignados desde el armado
+    generar_salida(resultado, 1, tmp_path, config)
+    paquete = resultado.resumen("24")[0]
+    assert guardar_datos_paquete(resultado, paquete, config, "ok", "PERMUTA", "1777769") is True
+    hoja = openpyxl.load_workbook(config["rutas"]["registro"])["Propuestos"]
+    titulos = [c.value for c in hoja[1]]
+    filas = [[c.value for c in f] for f in hoja.iter_rows(min_row=2)]
+    del_paquete = [f for f in filas if f[titulos.index("N° propuesta")] == paquete["n_propuesta"]
+                   and f[titulos.index("Ventana")] == "24 hs"]
+    assert del_paquete and all(f[titulos.index("ID pago E1")] == "1777769" for f in del_paquete)
+    assert all(f[titulos.index("Acción")] == "PERMUTA" for f in del_paquete)
+
+
+def test_aviso_parciales_que_no_estan_en_a_o_p():
+    hist = [dict(doc=1, contrato="K1", estatus="A"), dict(doc=2, contrato="K1", estatus="R"),
+            dict(doc=3, contrato="K2", estatus="P")]
+    propuestas = [dict(tipo="PAGAR", contrato="K1"), dict(tipo="PAGAR", contrato="K2")]
+    avisos = Avisos()
+    _validar_estatus(hist, propuestas, avisos)
+    assert propuestas[0].get("alerta_estatus") and not propuestas[1].get("alerta_estatus")
+    assert "K1: 2 (R)" in avisos.revisar[0]
+
+
+def test_resumen_por_fecha_de_pago(archivos, config):
+    resultado = ejecutar_netting(archivos, HOY, 1000, config)
+    por_fecha = {d["fecha"]: d for d in resumen_por_fecha_de_pago(resultado)}
+    assert por_fecha[D0.date()]["docs_24"] == 2 and por_fecha[D1.date()]["docs_24"] == 3
+    assert por_fecha[D2.date()]["docs_48"] == 1
 
 
 def test_errores_de_carga_claros(archivos, tmp_path):

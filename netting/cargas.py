@@ -259,6 +259,8 @@ COLUMNAS_HISTORICO = {
     "fecha_pago": (["Fecha Pago"], True),                                 # S
     "dias_origen": (["Dias A pagar"], False),                             # AA (marca PENDIENTE / X)
     "id_largo": (["ID LARGO", "id_largo"], False),
+    "id_corto": (["ID CORTO", "id_corto"], False),
+    "estatus": (["Estatus Documento"], False),
 }
 
 

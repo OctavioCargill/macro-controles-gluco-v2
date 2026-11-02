@@ -15,7 +15,10 @@ from gui.pantalla_inicio import TarjetaPaso, alternar_estado_vacio, crear_estado
 from netting.cargas import ErrorDeCarga
 from netting.config import cargar_config, guardar_config
 from netting.salida import asignar_grupos, resumen_propuestas
-from netting.servicio import NOMBRE_SALIDA, ejecutar_netting, generar_salida
+from netting.servicio import (
+    NOMBRE_SALIDA, ejecutar_netting, generar_salida, guardar_datos_paquete, repartir_grupos,
+    resumen_por_fecha_de_pago,
+)
 from services.auditoria import APP_DATA_PATH
 
 logger = logging.getLogger(__name__)
@@ -247,6 +250,15 @@ class PantallaNettingCarga(ctk.CTkFrame):
             font=T.NOTA, text_color=T.TEXTO_TENUE,
         ).grid(row=2, column=3, sticky="w", padx=(0, 18), pady=(2, 8))
 
+        self.var_bloquear = ctk.BooleanVar(value=bool(self.config.get("bloquear_propuestos", True)))
+        ctk.CTkCheckBox(
+            parametros,
+            text="No volver a proponer documentos que ya salieron en una propuesta (hasta que Liberación los libere)",
+            variable=self.var_bloquear, font=T.CUERPO_CHICO, text_color=T.TEXTO_SUAVE,
+            fg_color=T.PRIMARIO, hover_color=T.PRIMARIO_HOVER, border_color=T.BORDE_FUERTE,
+            checkbox_width=18, checkbox_height=18,
+        ).grid(row=3, column=0, columnspan=4, sticky="w", padx=18, pady=(0, 10))
+
     def al_mostrar(self):
         # Después de dar salida, el último N° guardado pasa a ser el punto de partida de la próxima corrida.
         if getattr(self.master, "netting_salida", None) and not self._procesando:
@@ -332,6 +344,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
 
         self.config["rutas"].update(self.rutas)
         self.config["ultimo_numero_propuesta"] = numero
+        self.config["bloquear_propuestos"] = bool(self.var_bloquear.get())
         try:
             guardar_config(self.config)
         except Exception:
@@ -411,6 +424,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
 # ====================================================================== revisar
 
 class PantallaNettingRevision(ctk.CTkFrame):
+    """Un paquete por AB, como el formulario de la macro: lo que se descuenta y lo que se paga."""
 
     def __init__(self, master):
         super().__init__(master)
@@ -418,19 +432,24 @@ class PantallaNettingRevision(ctk.CTkFrame):
         self.configure(fg_color=T.FONDO)
         self.ventana = "24"
         self._resumen = []
+        self._visibles = []
+        self._actual = None
         self._crear()
 
     def _crear(self):
+        # --- Cabecera: título, 24/48, buscador y avisos
         cabecera = ctk.CTkFrame(self, fg_color="transparent")
-        cabecera.pack(fill="x", padx=0, pady=0)
+        cabecera.pack(fill="x")
         izquierda = ctk.CTkFrame(cabecera, fg_color="transparent")
         izquierda.pack(side="left")
-        _encabezado(izquierda, "Revisar propuestas", "")
+        _encabezado(izquierda, "Revisar propuestas", "", compacto=True)
 
         controles = ctk.CTkFrame(cabecera, fg_color="transparent")
-        controles.pack(side="right", padx=20, pady=(24, 0))
-        self.btn_avisos = _boton(controles, "Avisos", self.ver_avisos, tipo="borde", ancho=120, alto=34)
+        controles.pack(side="right", padx=20, pady=(18, 0))
+        self.btn_avisos = _boton(controles, "Avisos", self.ver_avisos, tipo="borde", ancho=110, alto=34)
         self.btn_avisos.pack(side="right", padx=(8, 0))
+        _boton(controles, "Por fecha de pago", self.ver_por_fecha, tipo="borde", ancho=140, alto=34).pack(
+            side="right", padx=(8, 0))
         selector = ctk.CTkFrame(controles, fg_color="transparent")
         selector.pack(side="right", padx=(8, 0))
         self.botones_ventana = {}
@@ -442,65 +461,134 @@ class PantallaNettingRevision(ctk.CTkFrame):
             boton.pack(side="left", padx=(0, 4))
             self.botones_ventana[ventana] = boton
         self._marcar_ventana()
-        self.ent_buscar = ctk.CTkEntry(controles, width=240, placeholder_text="Buscar beneficiario, AB o N°…",
-                                       fg_color=T.SUPERFICIE, border_color=T.BORDE_FUERTE)
-        self.ent_buscar.pack(side="right")
-        self.ent_buscar.bind("<KeyRelease>", lambda _e: self._llenar_lista())
 
-        self.lbl_totales = ctk.CTkLabel(self, text="", font=T.CUERPO, text_color=T.TEXTO_SECUNDARIO, anchor="w")
-        self.lbl_totales.pack(anchor="w", padx=20, pady=(0, 6))
+        fila_grupo = ctk.CTkFrame(self, fg_color="transparent")
+        fila_grupo.pack(fill="x", padx=20, pady=(0, 6))
+        self.lbl_totales = ctk.CTkLabel(fila_grupo, text="", font=T.CUERPO_CHICO, text_color=T.TEXTO_SECUNDARIO, anchor="w")
+        self.lbl_totales.pack(side="left")
+        _boton(fila_grupo, "Repartir", self._repartir, tipo="borde", ancho=80, alto=28).pack(side="right")
+        self.ent_analistas = ctk.CTkEntry(fila_grupo, width=44, height=28, fg_color=T.SUPERFICIE_HUNDIDA,
+                                          border_color=T.BORDE_FUERTE, justify="center")
+        self.ent_analistas.pack(side="right", padx=(6, 6))
+        ctk.CTkLabel(fila_grupo, text="Analistas", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(side="right")
+        self.combo_grupo = ctk.CTkOptionMenu(
+            fila_grupo, values=["Todos"], width=90, height=28, command=lambda _v: self._llenar_lista(),
+            fg_color=T.SECUNDARIO, button_color=T.SECUNDARIO_HOVER, button_hover_color=T.BORDE_FUERTE,
+            text_color=T.TEXTO_SOBRE_SECUNDARIO, dropdown_fg_color=T.SUPERFICIE, dropdown_text_color=T.TEXTO,
+            dropdown_hover_color=T.SUPERFICIE_ELEVADA, font=T.ETIQUETA_CHICA,
+        )
+        self.combo_grupo.pack(side="right", padx=(6, 16))
+        ctk.CTkLabel(fila_grupo, text="Mi grupo", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(side="right")
 
         cuerpo = ctk.CTkFrame(self, fg_color="transparent")
-        cuerpo.pack(fill="both", expand=True, padx=20, pady=(0, 14))
-        cuerpo.grid_columnconfigure(0, weight=1)
-        cuerpo.grid_rowconfigure(0, weight=5)
-        cuerpo.grid_rowconfigure(1, weight=6)
+        cuerpo.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        cuerpo.grid_columnconfigure(0, weight=0, minsize=330)
+        cuerpo.grid_columnconfigure(1, weight=1)
+        cuerpo.grid_rowconfigure(0, weight=1)
 
-        # --- Lista de propuestas
+        # --- Izquierda: lista de paquetes
         lista = _panel(cuerpo)
-        lista.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
-        columnas = ("N°", "Tipo de beneficiario", "AB", "Beneficiario", "Docs", "A pagar", "A descontar", "Neto", "Grupo")
-        anchos = {"N°": 70, "Tipo de beneficiario": 170, "AB": 90, "Beneficiario": 240, "Docs": 50,
-                  "A pagar": 130, "A descontar": 130, "Neto": 130, "Grupo": 60}
-        marco, self.tabla = _tabla(lista, columnas, anchos, alto=7,
-                                   derecha=("A pagar", "A descontar", "Neto", "Docs"), estirar=("Beneficiario",))
-        marco.pack(fill="both", expand=True, padx=12, pady=12)
-        self.tabla.bind("<<TreeviewSelect>>", lambda _e: self._mostrar_detalle())
+        lista.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        self.ent_buscar = ctk.CTkEntry(lista, placeholder_text="Buscar cliente, AB o N°…",
+                                       fg_color=T.SUPERFICIE_HUNDIDA, border_color=T.BORDE_FUERTE)
+        self.ent_buscar.pack(fill="x", padx=12, pady=(12, 8))
+        self.ent_buscar.bind("<KeyRelease>", lambda _e: self._llenar_lista())
+        marco, self.tabla = _tabla(lista, ("N°", "Cliente", "Neto"), {"N°": 60, "Cliente": 150, "Neto": 100},
+                                   alto=10, derecha=("Neto",), estirar=("Cliente",))
+        marco.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.tabla.bind("<<TreeviewSelect>>", lambda _e: self._mostrar_seleccion())
 
-        # --- Detalle de la propuesta seleccionada
+        # --- Derecha: el paquete seleccionado
         detalle = _panel(cuerpo)
-        detalle.grid(row=1, column=0, sticky="nsew")
-        self.lbl_detalle = ctk.CTkLabel(detalle, text="Elegí una propuesta para ver el detalle.", font=T.SUBTITULO,
-                                        text_color=T.TEXTO, anchor="w", justify="left")
-        self.lbl_detalle.pack(anchor="w", padx=16, pady=(12, 2))
-        self.lbl_sub = ctk.CTkLabel(detalle, text="", font=T.CUERPO_CHICO, text_color=T.TEXTO_SECUNDARIO, anchor="w")
-        self.lbl_sub.pack(anchor="w", padx=16, pady=(0, 6))
+        detalle.grid(row=0, column=1, sticky="nsew")
+        detalle.grid_columnconfigure(0, weight=1)
+        detalle.grid_rowconfigure(2, weight=1)
+        detalle.grid_rowconfigure(3, weight=1)
 
-        tablas = ctk.CTkFrame(detalle, fg_color="transparent")
-        tablas.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        tablas.grid_columnconfigure(0, weight=1, uniform="det")
-        tablas.grid_columnconfigure(1, weight=1, uniform="det")
-        tablas.grid_rowconfigure(1, weight=1)
+        encabezado = ctk.CTkFrame(detalle, fg_color="transparent")
+        encabezado.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 0))
+        encabezado.grid_columnconfigure(1, weight=1)
+        self.lbl_tipo = ctk.CTkLabel(encabezado, text="", font=T.ETIQUETA_CHICA, text_color=T.MARCA, anchor="w")
+        self.lbl_tipo.grid(row=0, column=0, columnspan=2, sticky="w")
+        self.lbl_cliente = ctk.CTkLabel(encabezado, text="", font=(T.FUENTE, 20, "bold"), text_color=T.TEXTO, anchor="w")
+        self.lbl_cliente.grid(row=1, column=0, columnspan=2, sticky="w")
+        self.lbl_ab = ctk.CTkLabel(encabezado, text="", font=T.ETIQUETA, text_color=T.INFO, anchor="w",
+                                   fg_color=T.INFO_FONDO, corner_radius=8)
+        self.lbl_ab.grid(row=2, column=0, sticky="w", pady=(2, 0))
+        self.lbl_ab.bind("<Button-1>", lambda _e: self._copiar_ab())
+        self.lbl_ab.configure(cursor="hand2")
+        neto = ctk.CTkFrame(encabezado, fg_color="transparent")
+        neto.grid(row=0, column=2, rowspan=3, sticky="e")
+        ctk.CTkLabel(neto, text="Neto a pagar", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_TENUE).pack(anchor="e")
+        self.lbl_neto = ctk.CTkLabel(neto, text="", font=(T.FUENTE, 22, "bold"), text_color=T.TEXTO)
+        self.lbl_neto.pack(anchor="e")
 
-        self.lbl_pagar = ctk.CTkLabel(tablas, text="Se paga", font=T.ETIQUETA, text_color=T.OK, anchor="w")
-        self.lbl_pagar.grid(row=0, column=0, sticky="w", padx=4)
-        self.lbl_descontar = ctk.CTkLabel(tablas, text="Se descuenta", font=T.ETIQUETA, text_color=T.ERROR, anchor="w")
-        self.lbl_descontar.grid(row=0, column=1, sticky="w", padx=(12, 4))
+        ctk.CTkFrame(detalle, fg_color=T.BORDE, height=1, corner_radius=0).grid(row=1, column=0, sticky="ew", padx=16, pady=8)
 
-        col_pagar = ("Documento", "Tipo", "Descripción", "Vendedor", "Total")
-        marco_p, self.tabla_pagar = _tabla(
-            tablas, col_pagar, {"Documento": 92, "Tipo": 45, "Descripción": 140, "Vendedor": 125, "Total": 115},
-            alto=5, derecha=("Total",), estirar=("Descripción", "Vendedor"))
-        marco_p.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
-        col_desc = ("Documento", "Tipo", "Detalle", "Fecha", "Total")
-        marco_d, self.tabla_descontar = _tabla(
-            tablas, col_desc, {"Documento": 92, "Tipo": 45, "Detalle": 160, "Fecha": 90, "Total": 115},
-            alto=5, derecha=("Total",), estirar=("Detalle",))
-        marco_d.grid(row=1, column=1, sticky="nsew", padx=(6, 0))
+        self.seccion_cobrar, self.tabla_cobrar, self.lbl_total_cobrar = self._seccion(
+            detalle, 2, "CUENTAS POR COBRAR", T.PELIGRO,
+            ("Vendedor", "Corredor", "N° Doc", "Tipo", "Emisión", "Descripción", "Total"),
+            {"Vendedor": 150, "Corredor": 110, "N° Doc": 80, "Tipo": 45, "Emisión": 90,
+             "Descripción": 150, "Total": 115},
+        )
+        self.seccion_pagar, self.tabla_pagar, self.lbl_total_pagar = self._seccion(
+            detalle, 3, "CUENTA POR PAGAR", T.INFO,
+            ("Vendedor", "Corredor", "Beneficiario", "N° Doc", "Tipo", "Descripción", "Total"),
+            {"Vendedor": 130, "Corredor": 110, "Beneficiario": 130, "N° Doc": 80, "Tipo": 45,
+             "Descripción": 130, "Total": 115},
+        )
+
+        # --- Pie: observaciones y navegación
+        pie = ctk.CTkFrame(detalle, fg_color="transparent")
+        pie.grid(row=4, column=0, sticky="ew", padx=16, pady=(4, 12))
+        pie.grid_columnconfigure(1, weight=1)
+        datos = ctk.CTkFrame(pie, fg_color="transparent")
+        datos.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ctk.CTkLabel(datos, text="Acción", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(side="left")
+        self.combo_accion = ctk.CTkOptionMenu(
+            datos, values=["—", "PERMUTA", "COMPENSA"], width=120, height=28,
+            fg_color=T.SECUNDARIO, button_color=T.SECUNDARIO_HOVER, button_hover_color=T.BORDE_FUERTE,
+            text_color=T.TEXTO_SOBRE_SECUNDARIO, dropdown_fg_color=T.SUPERFICIE, dropdown_text_color=T.TEXTO,
+            dropdown_hover_color=T.SUPERFICIE_ELEVADA, font=T.ETIQUETA_CHICA,
+        )
+        self.combo_accion.pack(side="left", padx=(6, 18))
+        ctk.CTkLabel(datos, text="ID de pago E1", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(side="left")
+        self.ent_id_pago = ctk.CTkEntry(datos, width=150, height=28, fg_color=T.SUPERFICIE_HUNDIDA,
+                                        border_color=T.BORDE_FUERTE, placeholder_text="Después de E1")
+        self.ent_id_pago.pack(side="left", padx=(6, 0))
+        ctk.CTkLabel(pie, text="Observaciones", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).grid(
+            row=1, column=0, sticky="nw", padx=(0, 8), pady=(4, 0))
+        self.txt_obs = ctk.CTkTextbox(pie, height=44, wrap="word", fg_color=T.SUPERFICIE_HUNDIDA,
+                                      border_color=T.BORDE_FUERTE, border_width=1, text_color=T.TEXTO)
+        self.txt_obs.grid(row=1, column=1, sticky="ew")
+        acciones = ctk.CTkFrame(pie, fg_color="transparent")
+        acciones.grid(row=0, column=2, rowspan=2, sticky="e", padx=(10, 0))
+        self.btn_obs = _boton(acciones, "Guardar", self._guardar_observacion, tipo="primario", ancho=150, alto=34)
+        self.btn_obs.pack(anchor="e")
+        navegacion = ctk.CTkFrame(acciones, fg_color="transparent")
+        navegacion.pack(anchor="e", pady=(6, 0))
+        _boton(navegacion, "«", lambda: self._mover(-1), tipo="secundario", ancho=44, alto=30).pack(side="left")
+        self.lbl_posicion = ctk.CTkLabel(navegacion, text="", font=T.ETIQUETA, text_color=T.TEXTO, width=80)
+        self.lbl_posicion.pack(side="left")
+        _boton(navegacion, "»", lambda: self._mover(1), tipo="secundario", ancho=44, alto=30).pack(side="left")
 
         self.vacio = crear_estado_vacio(
             self, "Todavía no hay propuestas armadas", "Armá las propuestas en el paso 1 para revisarlas acá.")
 
+    def _seccion(self, master, fila, titulo, color, columnas, anchos):
+        marco = ctk.CTkFrame(master, fg_color="transparent")
+        marco.grid(row=fila, column=0, sticky="nsew", padx=16, pady=(0, 8))
+        barra = ctk.CTkFrame(marco, fg_color=color, corner_radius=8, height=28)
+        barra.pack(fill="x")
+        ctk.CTkLabel(barra, text=titulo, font=T.ETIQUETA, text_color=T.TEXTO_SOBRE_COLOR).pack(pady=3)
+        total = ctk.CTkLabel(marco, text="", font=T.ETIQUETA, text_color=color, anchor="e", height=24)
+        total.pack(side="bottom", anchor="e")
+        contenedor, tabla = _tabla(marco, columnas, anchos, alto=3, derecha=("Total",),
+                                   estirar=("Descripción", "Vendedor"))
+        contenedor.pack(fill="both", expand=True, pady=(4, 2))
+        return marco, tabla, total
+
+    # ------------------------------------------------------------------ datos
     def al_mostrar(self):
         resultado = getattr(self.master, "netting_resultado", None)
         alternar_estado_vacio(self.vacio, resultado is None)
@@ -509,6 +597,32 @@ class PantallaNettingRevision(ctk.CTkFrame):
         cantidad = len(resultado.avisos.revisar)
         self.btn_avisos.configure(text=f"⚠  Avisos ({cantidad})" if cantidad else "Avisos",
                                   text_color=T.AVISO if cantidad else T.TEXTO_SECUNDARIO)
+        self.ent_analistas.delete(0, "end")
+        self.ent_analistas.insert(0, str(resultado.cantidad_analistas))
+        self._actualizar_grupos()
+        self._cambiar_ventana(self.ventana)
+
+    def _actualizar_grupos(self):
+        resultado = getattr(self.master, "netting_resultado", None)
+        cantidad = resultado.cantidad_analistas if resultado else 1
+        valores = ["Todos"] + [str(g) for g in range(1, cantidad + 2)]
+        actual = self.combo_grupo.get()
+        self.combo_grupo.configure(values=valores)
+        self.combo_grupo.set(actual if actual in valores else "Todos")
+
+    def _repartir(self):
+        resultado = getattr(self.master, "netting_resultado", None)
+        if resultado is None:
+            return
+        try:
+            cantidad = int(self.ent_analistas.get().strip())
+            if cantidad < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("Analistas", "Ingresá un número entero mayor que 0.")
+            return
+        repartir_grupos(resultado, cantidad)
+        self._actualizar_grupos()
         self._cambiar_ventana(self.ventana)
 
     def _marcar_ventana(self):
@@ -528,63 +642,149 @@ class PantallaNettingRevision(ctk.CTkFrame):
         pagar = sum(r["a_pagar"] for r in self._resumen)
         descontar = sum(r["a_descontar"] for r in self._resumen)
         self.lbl_totales.configure(
-            text=(f"{len(self._resumen)} propuestas · A pagar {_moneda(pagar)} · A descontar {_moneda(descontar)} · "
-                  f"Neto {_moneda(pagar + descontar)}   ·   Fecha de proceso {resultado.fecha_proceso:%d/%m/%Y}")
+            text=(f"{len(self._resumen)} paquetes (uno por AB)  ·  A pagar {_moneda(pagar)}  ·  "
+                  f"A descontar {_moneda(descontar)}  ·  Neto {_moneda(pagar + descontar)}  ·  "
+                  f"Fecha de proceso {resultado.fecha_proceso:%d/%m/%Y}")
         )
         self._llenar_lista()
 
     def _llenar_lista(self):
         self.tabla.delete(*self.tabla.get_children())
         filtro = self.ent_buscar.get().strip().casefold()
+        grupo = self.combo_grupo.get()
+        self._visibles = []
         for indice, item in enumerate(self._resumen):
-            texto = f"{item['n_propuesta']} {item['ab_benef']} {item['benef']} {item['tipo_benef']}".casefold()
+            texto = f"{item['n_propuesta']} {item['ab_benef']} {item['ab_e1']} {item['benef']} {item['tipo_benef']}".casefold()
             if filtro and filtro not in texto:
                 continue
-            etiqueta = "negativo" if item["neto"] < 0 else ("par" if indice % 2 == 0 else "impar")
-            self.tabla.insert("", "end", iid=str(indice), tags=(etiqueta,), values=(
-                item["n_propuesta"], item["tipo_benef"], item["ab_benef"], item["benef"], item["documentos"],
-                _moneda(item["a_pagar"]), _moneda(item["a_descontar"]), _moneda(item["neto"]), item["grupo"],
-            ))
-        hijos = self.tabla.get_children()
-        if hijos:
-            self.tabla.selection_set(hijos[0])
-            self.tabla.focus(hijos[0])
+            if grupo != "Todos" and str(item["grupo"]) != grupo:
+                continue
+            self._visibles.append(indice)
+            etiqueta = "negativo" if item["neto"] < 0 or item["alerta_estatus"] else (
+                "par" if len(self._visibles) % 2 else "impar")
+            cliente = ("⚠ " if item["alerta_estatus"] else "") + str(item["benef"])
+            self.tabla.insert("", "end", iid=str(indice), tags=(etiqueta,),
+                              values=(item["n_propuesta"], cliente, _moneda(item["neto"])))
+        if self._visibles:
+            self._seleccionar(self._visibles[0])
         else:
+            self._actual = None
             self._limpiar_detalle()
 
-    def _limpiar_detalle(self):
-        self.lbl_detalle.configure(text="Elegí una propuesta para ver el detalle.")
-        self.lbl_sub.configure(text="")
-        self.tabla_pagar.delete(*self.tabla_pagar.get_children())
-        self.tabla_descontar.delete(*self.tabla_descontar.get_children())
+    def _seleccionar(self, indice):
+        self.tabla.selection_set(str(indice))
+        self.tabla.focus(str(indice))
+        self.tabla.see(str(indice))
 
-    def _mostrar_detalle(self):
+    def _mostrar_seleccion(self):
         seleccion = self.tabla.selection()
-        if not seleccion:
+        if seleccion:
+            self._mostrar_paquete(int(seleccion[0]))
+
+    def _mover(self, paso):
+        if not self._visibles or self._actual not in self._visibles:
             return
-        item = self._resumen[int(seleccion[0])]
-        self.lbl_detalle.configure(text=f"Propuesta {item['n_propuesta']} · {item['benef']}")
-        primera = item["filas"][0]
-        corredor = primera["corredor"] if primera["corredor"] not in ("", None) else "directo"
-        self.lbl_sub.configure(
-            text=(f"{item['tipo_benef']} · AB {item['ab_benef']} · Corredor: {corredor} · "
-                  f"Neto {_moneda(item['neto'])}" + (f" · Grupo {item['grupo']}" if item["grupo"] != "" else ""))
-        )
+        posicion = (self._visibles.index(self._actual) + paso) % len(self._visibles)
+        self._seleccionar(self._visibles[posicion])
+
+    def _limpiar_detalle(self):
+        for etiqueta in (self.lbl_tipo, self.lbl_cliente, self.lbl_ab, self.lbl_neto, self.lbl_posicion,
+                         self.lbl_total_cobrar, self.lbl_total_pagar):
+            etiqueta.configure(text="")
+        self.tabla_cobrar.delete(*self.tabla_cobrar.get_children())
         self.tabla_pagar.delete(*self.tabla_pagar.get_children())
-        self.tabla_descontar.delete(*self.tabla_descontar.get_children())
-        n_pagar = n_desc = 0
+        self.txt_obs.delete("1.0", "end")
+
+    def _mostrar_paquete(self, indice):
+        self._actual = indice
+        item = self._resumen[indice]
+        self.lbl_tipo.configure(
+            text=f"PROPUESTA {self.ventana} HS  ·  N° {item['n_propuesta']}  ·  GRUPO {item['grupo']}  ·  "
+                 f"{item['tipo_benef']}  ·  AB beneficiario {item['ab_benef']}"
+                 + ("  ·  ⚠ HAY PARCIALES QUE NO ESTÁN EN A o P" if item["alerta_estatus"] else ""))
+        self.lbl_cliente.configure(text=item["benef"])
+        self.lbl_ab.configure(
+            text=f"  Buscar en netting por {item['buscar_por']}: pegar AB {item['ab_e1']} en «{item['campo_e1']}»   ⧉  ")
+        self.lbl_neto.configure(text=_moneda(item["neto"]), text_color=T.ERROR if item["neto"] < 0 else T.TEXTO)
+
+        self.tabla_cobrar.delete(*self.tabla_cobrar.get_children())
+        self.tabla_pagar.delete(*self.tabla_pagar.get_children())
+        n_cobrar = n_pagar = 0
         for fila in item["filas"]:
+            corredor = fila["corredor"] if fila["corredor"] not in ("", None) else "DIRECTO"
             if fila["tipo"] == "PAGAR":
                 self.tabla_pagar.insert("", "end", tags=("par" if n_pagar % 2 == 0 else "impar",), values=(
-                    fila["doc"], fila["tipo_doc"], fila["desc"], fila["vendedor"], _moneda(fila["total"])))
+                    fila["vendedor"], corredor, fila["benef"], fila["doc"], fila["tipo_doc"], fila["desc"],
+                    _moneda(fila["total"])))
                 n_pagar += 1
             else:
-                self.tabla_descontar.insert("", "end", tags=("par" if n_desc % 2 == 0 else "impar",), values=(
-                    fila["doc"], fila["tipo_doc"], fila["desc"] or fila.get("origen", ""), _fecha(fila["fecha_emision"]),
-                    _moneda(fila["total"])))
-                n_desc += 1
-        self.lbl_pagar.configure(text=f"Se paga · {n_pagar} doc. · {_moneda(item['a_pagar'])}")
-        self.lbl_descontar.configure(text=f"Se descuenta · {n_desc} doc. · {_moneda(item['a_descontar'])}")
+                self.tabla_cobrar.insert("", "end", tags=("par" if n_cobrar % 2 == 0 else "impar",), values=(
+                    fila["vendedor"], corredor, fila["doc"], fila["tipo_doc"], _fecha(fila["fecha_emision"]),
+                    fila["desc"] or fila.get("origen", ""), _moneda(fila["total"])))
+                n_cobrar += 1
+        self.lbl_total_cobrar.configure(text=f"Total a descontar: {_moneda(item['a_descontar'])}")
+        self.lbl_total_pagar.configure(text=f"Total a pagar: {_moneda(item['a_pagar'])}")
+        self.txt_obs.delete("1.0", "end")
+        if item.get("observaciones"):
+            self.txt_obs.insert("1.0", item["observaciones"])
+        self.combo_accion.set(item.get("accion") or "—")
+        self.ent_id_pago.delete(0, "end")
+        if item.get("id_pago"):
+            self.ent_id_pago.insert(0, str(item["id_pago"]))
+        self.btn_obs.configure(text="Guardar")
+        posicion = self._visibles.index(indice) + 1 if indice in self._visibles else 0
+        self.lbl_posicion.configure(text=f"{posicion} / {len(self._visibles)}")
+
+    def _guardar_observacion(self):
+        if self._actual is None:
+            return
+        texto = self.txt_obs.get("1.0", "end").strip()
+        accion = "" if self.combo_accion.get() == "—" else self.combo_accion.get()
+        id_pago = self.ent_id_pago.get().strip()
+        resultado = self.master.netting_resultado
+        try:
+            en_registro = guardar_datos_paquete(resultado, self._resumen[self._actual], cargar_config(), texto, accion, id_pago)
+        except PermissionError as exc:
+            messagebox.showerror("No se pudo guardar", str(exc))
+            return
+        self.btn_obs.configure(text="✓ Guardado" + (" y registrado" if en_registro else ""))
+        self.after(1800, lambda: self.btn_obs.winfo_exists() and self.btn_obs.configure(text="Guardar"))
+
+    def _copiar_ab(self):
+        if self._actual is None:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(str(self._resumen[self._actual]["ab_e1"]))
+        self.lbl_ab.configure(text=self.lbl_ab.cget("text").replace("⧉", "✓ copiado"))
+        self.after(1500, lambda: self._actual is not None and self._mostrar_paquete(self._actual))
+
+    def ver_por_fecha(self):
+        resultado = getattr(self.master, "netting_resultado", None)
+        if resultado is None:
+            return
+        ventana = ctk.CTkToplevel(self)
+        ventana.title("Documentos por fecha de pago")
+        ventana.configure(fg_color=T.FONDO)
+        ventana.geometry("640x420")
+        ventana.transient(self.winfo_toplevel())
+        ctk.CTkLabel(
+            ventana, text="Para comparar con la PowerApp filtrada por fecha de pago (cantidad de liquidaciones a pagar).",
+            font=T.CUERPO, text_color=T.TEXTO_SECUNDARIO, wraplength=600, justify="left",
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+        marco, tabla = _tabla(ventana, ("Fecha de pago", "Docs 24 hs", "Docs 48 hs", "Paquetes", "A pagar"),
+                              {"Fecha de pago": 120, "Docs 24 hs": 90, "Docs 48 hs": 90, "Paquetes": 80, "A pagar": 160},
+                              alto=9, derecha=("Docs 24 hs", "Docs 48 hs", "Paquetes", "A pagar"))
+        marco.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        total_24 = total_48 = 0
+        for indice, dato in enumerate(resumen_por_fecha_de_pago(resultado)):
+            total_24 += dato["docs_24"]
+            total_48 += dato["docs_48"]
+            tabla.insert("", "end", tags=("par" if indice % 2 == 0 else "impar",), values=(
+                dato["fecha"].strftime("%d/%m/%Y") if dato["fecha"] else "Sin fecha",
+                dato["docs_24"], dato["docs_48"], dato["paquetes"], _moneda(dato["total"])))
+        ctk.CTkLabel(ventana, text=f"Total: {total_24} documentos en 24 hs y {total_48} en 48 hs.",
+                     font=T.ETIQUETA, text_color=T.TEXTO).pack(anchor="w", padx=16)
+        _boton(ventana, "Cerrar", ventana.destroy, tipo="secundario", ancho=120).pack(anchor="e", padx=16, pady=(4, 14))
 
     def ver_avisos(self):
         resultado = getattr(self.master, "netting_resultado", None)
@@ -681,6 +881,8 @@ class PantallaNettingSalida(ctk.CTkFrame):
                 text_color=T.TEXTO_SECUNDARIO)
             self.btn_abrir.pack_forget()
             self.btn_carpeta.pack_forget()
+        self.ent_analistas.delete(0, "end")
+        self.ent_analistas.insert(0, str(resultado.cantidad_analistas))
         self._previsualizar()
 
     def _cantidad(self):
@@ -696,8 +898,7 @@ class PantallaNettingSalida(ctk.CTkFrame):
         cantidad = self._cantidad()
         if resultado is None or cantidad is None:
             return
-        asignar_grupos(resultado.propuestas_24, cantidad, "24")
-        asignar_grupos(resultado.propuestas_48, cantidad, "48")
+        repartir_grupos(resultado, cantidad)
         grupos = {}
         for ventana, filas in (("24", resultado.propuestas_24), ("48", resultado.propuestas_48)):
             for item in resumen_propuestas(filas):
@@ -738,7 +939,10 @@ class PantallaNettingSalida(ctk.CTkFrame):
             messagebox.showerror("No se pudo generar la salida", str(exc))
             return
         self.master.netting_salida = str(ruta)
-        self.estado.configure(text=f"Listo: {ruta}", text_color=T.OK)
+        self.estado.configure(
+            text=f"Listo: {ruta}. Los documentos quedaron registrados en Netting_Propuestos.xlsx (data).",
+            text_color=T.OK,
+        )
         self.btn_abrir.pack(side="left", padx=(12, 0), after=self.btn_generar)
         self.btn_carpeta.pack(side="left", padx=(8, 0), after=self.btn_abrir)
         self._previsualizar()
