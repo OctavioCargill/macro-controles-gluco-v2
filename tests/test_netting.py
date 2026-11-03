@@ -189,7 +189,7 @@ def archivos(tmp_path):
     }
 
 
-CONFIG = {"feriados": ["2026-01-01", "2026-11-23"], "corredores_solo_24": [], "rutas": {}}
+CONFIG = {"feriados": ["2026-01-01", "2026-11-23"], "corredores_solo_24": [], "agrupar_por_ab": True, "rutas": {}}
 
 
 @pytest.fixture

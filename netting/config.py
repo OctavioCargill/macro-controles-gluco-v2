@@ -53,7 +53,7 @@ CONFIG_POR_DEFECTO = {
     # hay que poner el número que tenga la macro en producción ese día.
     "ultimo_numero_propuesta": 54628,
     "cantidad_analistas": 1,
-    # Un paquete por AB beneficiario (pedido de las dueñas). False = numeración original de la macro.
+    # Debe agruparse por AB beneficiario, pero sin repetir la misma liquidación dentro del mismo paquete.
     "agrupar_por_ab": True,
     # No volver a proponer documentos que ya salieron en una propuesta y todavía no se liberaron.
     "bloquear_propuestos": True,

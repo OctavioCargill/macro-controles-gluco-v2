@@ -502,21 +502,37 @@ def _clave_ab(fila):
     return ("nombre", _texto_celda(fila["benef"]).strip().casefold())
 
 
+def _clave_doc_unica(fila):
+    """Clave única por documento dentro del mismo AB para no repetir la misma liquidación en un paquete."""
+    if fila.get("origen") == "077":
+        return ("077", str(fila.get("tipo_doc", "")), str(fila.get("doc", "")))
+    if fila.get("id_largo"):
+        return ("hist", str(fila.get("id_largo", "")))
+    return ("hist", str(fila.get("tipo_doc", "")), str(fila.get("doc", "")))
+
+
 def agrupar_por_ab(propuestas, estado: Estado):
     """Un paquete de pago por AB beneficiario: todo lo que se le paga y todo lo que se le descuenta.
 
     Los paquetes se numeran en el orden en que aparece cada AB; dentro de cada paquete van
-    primero los documentos a pagar y después los descuentos. Devuelve la lista reordenada.
+    primero los documentos a pagar y después los descuentos. Para evitar duplicados en el mismo
+    AB, cada liquidación/documento solo aparece una vez dentro del paquete.
     """
     paquetes = {}
     for fila in propuestas:
-        paquetes.setdefault(_clave_ab(fila), []).append(fila)
+        clave_ab = _clave_ab(fila)
+        clave_doc = _clave_doc_unica(fila)
+        paquete = paquetes.setdefault(clave_ab, {})
+        if clave_doc in paquete:
+            continue
+        paquete[clave_doc] = fila
+
     ordenadas = []
     numero = estado.ultimo_numero
     for filas in paquetes.values():
         numero += 1
-        a_pagar = [f for f in filas if f["tipo"] == PAGAR]
-        descuentos = [f for f in filas if f["tipo"] != PAGAR]
+        a_pagar = [f for f in filas.values() if f["tipo"] == PAGAR]
+        descuentos = [f for f in filas.values() if f["tipo"] != PAGAR]
         for fila in a_pagar + descuentos:
             fila["n_propuesta"] = numero
             ordenadas.append(fila)
