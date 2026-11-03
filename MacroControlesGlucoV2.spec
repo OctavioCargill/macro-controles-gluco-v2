@@ -28,6 +28,7 @@ analysis = Analysis(
         "pyxlsb",
         "xlsxwriter",
         "netting",
+        "liberacion",
         "tkinter",
         "pywin32",
     ],

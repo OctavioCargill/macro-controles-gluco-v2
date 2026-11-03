@@ -310,3 +310,11 @@ def test_errores_de_carga_claros(archivos, tmp_path):
         cargas.cargar_historico(_xlsx(tmp_path / "malo.xlsx", ["Documento", "Tipo Doc", "Total a Pagar", "Fecha Pago"], [[1, "L#", 1, D0]]))
     with pytest.raises(cargas.ErrorDeCarga, match="no se encontró la fila de encabezados"):
         cargas.cargar_090(archivos["077"])
+
+
+def test_sin_propuestas_avisa_proximas_fechas():
+    from netting.servicio import _avisar_sin_propuestas
+    avisos = Avisos()
+    hist = [{"fecha_pago": datetime(2026, 11, 10)}, {"fecha_pago": datetime(2026, 11, 11)}, {"fecha_pago": None}]
+    _avisar_sin_propuestas(hist, date(2026, 11, 3), avisos)
+    assert "03/11/2026" in avisos.revisar[0] and "10/11/2026, 11/11/2026" in avisos.revisar[0]

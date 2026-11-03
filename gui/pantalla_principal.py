@@ -72,8 +72,6 @@ class MenuPrincipal(ctk.CTkFrame):
         for columna, tarjeta in enumerate((self.modulo_controlar, self.modulo_netting, self.modulo_liberacion)):
             tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0 if columna == 0 else 8, 0 if columna == 2 else 8))
 
-        self.modulo_liberacion.mostrar("pronto", "Liberación de liquidaciones.", "En desarrollo")
-
         # --- Pie: salir
         pie = ctk.CTkFrame(contenido, fg_color="transparent")
         pie.pack(side="bottom", fill="x", pady=(0, 10))
@@ -93,6 +91,18 @@ class MenuPrincipal(ctk.CTkFrame):
         self.actualizar_estado()
 
     def actualizar_estado(self):
+        liberacion = getattr(self.master, "liberacion_resultado", None)
+        if liberacion is None:
+            self.modulo_liberacion.mostrar(
+                "disponible", "Control de pagos contra E1, Output E1 y limpieza de liquidaciones pagadas.", "Abrir →"
+            )
+        else:
+            e = liberacion.estadisticas()
+            self.modulo_liberacion.mostrar(
+                "siguiente", f"Controlado a las {liberacion.generado:%H:%M}: {e['visibles']} paquetes, "
+                f"{e['a_liberar']} para liberar.", "Continuar →"
+            )
+
         resultado = getattr(self.master, "netting_resultado", None)
         if resultado is None:
             self.modulo_netting.mostrar(

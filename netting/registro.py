@@ -23,7 +23,7 @@ HOJA_REGISTRO = "Propuestos"
 COLUMNAS_REGISTRO = [
     "Clave", "Estado", "Fecha proceso", "Generado", "Ventana", "N° propuesta", "AB", "Beneficiario",
     "Tipo beneficiario", "Movimiento", "Origen", "N° documento", "Tipo doc", "ID largo", "Total",
-    "Acción", "Observaciones", "ID pago E1",
+    "Acción", "Observaciones", "ID pago E1", "Descripción", "Grupo",
 ]
 
 
@@ -105,6 +105,43 @@ def cargar_propuestos(ruta):
         if clave and estado != "ANULADA":
             claves.add(clave)
     return claves
+
+
+def actualizar_registro(ruta, cambios_por_fila):
+    """Aplica cambios al registro. cambios_por_fila(fila: dict título→valor) devuelve {título: valor} o None.
+
+    Las columnas que no existan se agregan al final. Devuelve la cantidad de filas cambiadas.
+    """
+    from openpyxl import load_workbook
+
+    ruta = Path(ruta)
+    if not ruta.exists():
+        return 0
+    libro = load_workbook(ruta)
+    try:
+        hoja = libro[HOJA_REGISTRO]
+        titulos = [celda.value for celda in hoja[1]]
+        posicion = {titulo: indice for indice, titulo in enumerate(titulos, start=1) if titulo}
+        cambiadas = 0
+        for numero in range(2, hoja.max_row + 1):
+            fila = {titulo: hoja.cell(numero, indice).value for titulo, indice in posicion.items()}
+            cambios = cambios_por_fila(fila)
+            if not cambios:
+                continue
+            for titulo, valor in cambios.items():
+                if titulo not in posicion:
+                    posicion[titulo] = max(posicion.values(), default=0) + 1
+                    hoja.cell(row=1, column=posicion[titulo], value=titulo)
+                hoja.cell(numero, posicion[titulo], value=valor)
+            cambiadas += 1
+        libro.save(ruta)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"No se pudo actualizar {ruta.name}. Si está abierto en Excel, cerralo y probá de nuevo."
+        ) from exc
+    finally:
+        libro.close()
+    return cambiadas
 
 
 def actualizar_paquete(ruta, resultado, ventana, n_propuesta, datos):
@@ -190,6 +227,8 @@ def registrar_salida(ruta, resultado, propuestas_por_ventana):
                 "Acción": fila.get("accion", ""),
                 "Observaciones": fila.get("observaciones", ""),
                 "ID pago E1": fila.get("id_pago", ""),
+                "Descripción": fila.get("desc", ""),
+                "Grupo": fila.get("grupo", ""),
             }
             for titulo, valor in valores.items():
                 hoja.cell(row=fila_excel, column=posicion[titulo], value=valor)

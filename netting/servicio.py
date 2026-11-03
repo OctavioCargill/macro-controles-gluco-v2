@@ -76,6 +76,16 @@ def _excluir_ya_procesados(historico, reporte_077, config, avisos, avanzar):
             "excluidos_propuestos_077": propuestos_077}
 
 
+def _avisar_sin_propuestas(hist, fecha_proceso, avisos):
+    """Si no sale ninguna propuesta casi siempre es la fecha de proceso: se muestran las próximas fechas de pago."""
+    futuras = sorted({f["fecha_pago"].date() for f in hist
+                      if f.get("fecha_pago") is not None and f["fecha_pago"].date() > fecha_proceso})
+    texto = f"No salió ninguna propuesta con fecha de proceso {fecha_proceso:%d/%m/%Y}: ningún documento del histórico vence en 24 o 48 hs."
+    if futuras:
+        texto += " Próximas fechas de pago en el histórico: " + ", ".join(f"{d:%d/%m/%Y}" for d in futuras[:5]) + "."
+    avisos.agregar(texto, revisar=True)
+
+
 def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, progreso=None) -> ResultadoNetting:
     """rutas: {"historico", "077", "090"} → ResultadoNetting. Lanza cargas.ErrorDeCarga."""
 
@@ -170,6 +180,8 @@ def ejecutar_netting(rutas, fecha_proceso: date, ultimo_numero: int, config, pro
         "filas_48": len(propuestas_48),
         **excluidos,
     }
+    if not propuestas_24 and not propuestas_48:
+        _avisar_sin_propuestas(hist, fecha_proceso, avisos)
     avanzar(
         f"Listo: {estadisticas['propuestas_24']} propuestas de 24 hs y {estadisticas['propuestas_48']} de 48 hs."
     )

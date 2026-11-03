@@ -24,7 +24,7 @@ from services.auditoria import (
     evaluar_integridad_liquidaciones,
 )
 
-from gui.pantalla_principal import BarraNavegacion, MenuPrincipal, PantallaEnDesarrollo
+from gui.pantalla_principal import BarraNavegacion, MenuPrincipal
 from gui.pantalla_inicio import (
     MenuControlar,
     PantallaBusqueda,
@@ -38,6 +38,12 @@ from gui.pantalla_netting import (
     PantallaNettingCarga,
     PantallaNettingRevision,
     PantallaNettingSalida,
+)
+from gui.pantalla_liberacion import (
+    MenuLiberacion,
+    PantallaLiberacionControl,
+    PantallaLiberacionLimpieza,
+    PantallaLiberacionRevision,
 )
 
 # Jerarquía de pantallas: de quién cuelga cada una y cómo se llama en la ruta de navegación.
@@ -54,6 +60,9 @@ PANTALLA_PADRE = {
     "netting_carga": "netting",
     "netting_revision": "netting",
     "netting_salida": "netting",
+    "liberacion_control": "liberacion",
+    "liberacion_revision": "liberacion",
+    "liberacion_limpieza": "liberacion",
 }
 TITULO_PANTALLA = {
     "inicio": "Menú principal",
@@ -68,6 +77,9 @@ TITULO_PANTALLA = {
     "netting_carga": "Armar propuestas",
     "netting_revision": "Revisar propuestas",
     "netting_salida": "Dar salida",
+    "liberacion_control": "Controlar pagos",
+    "liberacion_revision": "Revisar y liberar",
+    "liberacion_limpieza": "Limpiar pagadas",
 }
 
 ctk.set_appearance_mode("light")
@@ -107,6 +119,9 @@ class App(ctk.CTk):
         # Netting: resultado de la última corrida y archivo generado (solo en memoria, por sesión).
         self.netting_resultado = None
         self.netting_salida = None
+        # Liberación: último control de pagos y Output E1 generado (por sesión).
+        self.liberacion_resultado = None
+        self.liberacion_output = None
 
         self._historial = []
         self._pantalla_actual = None
@@ -119,7 +134,10 @@ class App(ctk.CTk):
             "netting_carga": PantallaNettingCarga(self),
             "netting_revision": PantallaNettingRevision(self),
             "netting_salida": PantallaNettingSalida(self),
-            "liberacion": PantallaEnDesarrollo(self, "Liberación"),
+            "liberacion": MenuLiberacion(self),
+            "liberacion_control": PantallaLiberacionControl(self),
+            "liberacion_revision": PantallaLiberacionRevision(self),
+            "liberacion_limpieza": PantallaLiberacionLimpieza(self),
             "metricas": PantallaMetricas(self),
             "busqueda": PantallaBusqueda(self),
             "carga": PantallaCargaDatos(self),
@@ -361,7 +379,7 @@ class App(ctk.CTk):
         self.barra_navegacion.bloquear(bloquear)
 
     def _mostrar(self, nombre):
-        for menu in ("inicio", "controlar", "netting"):
+        for menu in ("inicio", "controlar", "netting", "liberacion"):
             if nombre == menu:
                 self.frames[menu].actualizar_estado()
 
@@ -382,7 +400,7 @@ class App(ctk.CTk):
         self.frames[nombre].pack(fill="both", expand=True)
         self.frames[nombre].tkraise()
 
-        if nombre.startswith("netting_") and hasattr(self.frames[nombre], "al_mostrar"):
+        if nombre.startswith(("netting_", "liberacion_")) and hasattr(self.frames[nombre], "al_mostrar"):
             self.frames[nombre].al_mostrar()
 
         if nombre == "metricas" and hasattr(self.frames["metricas"], "actualizar_metricas"):

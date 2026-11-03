@@ -405,6 +405,8 @@ class PantallaNettingCarga(ctk.CTkFrame):
             texto += f"  {avisos} aviso(s) para revisar."
         self.estado.configure(text=texto, text_color=T.AVISO if avisos else T.OK)
         self.btn_revisar.pack(side="left", padx=(12, 0), after=self.btn_armar)
+        if not resultado.propuestas_24 and not resultado.propuestas_48:
+            messagebox.showwarning("Sin propuestas", resultado.avisos.revisar[-1])
 
     def _set_procesando(self, activo):
         self._procesando = activo
@@ -922,6 +924,12 @@ class PantallaNettingSalida(ctk.CTkFrame):
         cantidad = self._cantidad()
         if cantidad is None:
             messagebox.showwarning("Cantidad de analistas", "Ingresá un número entero mayor que 0.")
+            return
+        if not resultado.propuestas_24 and not resultado.propuestas_48:
+            messagebox.showwarning(
+                "Sin propuestas",
+                f"No hay propuestas para dar salida (fecha de proceso {resultado.fecha_proceso:%d/%m/%Y}).\n\n"
+                "Revisá la fecha de proceso en «Armar propuestas»: los días a pagar se calculan contra esa fecha.")
             return
         destino = Path(self.carpeta) / NOMBRE_SALIDA
         if destino.exists() and not messagebox.askyesno(
