@@ -39,6 +39,7 @@ from gui.pantalla_netting import (
     PantallaNettingRevision,
     PantallaNettingSalida,
 )
+from gui.pantalla_asistente import PantallaAsistente
 from gui.pantalla_liberacion import (
     MenuLiberacion,
     PantallaLiberacionControl,
@@ -63,6 +64,7 @@ PANTALLA_PADRE = {
     "liberacion_control": "liberacion",
     "liberacion_revision": "liberacion",
     "liberacion_limpieza": "liberacion",
+    "asistente": "inicio",
 }
 TITULO_PANTALLA = {
     "inicio": "Menú principal",
@@ -80,6 +82,7 @@ TITULO_PANTALLA = {
     "liberacion_control": "Controlar pagos",
     "liberacion_revision": "Revisar y liberar",
     "liberacion_limpieza": "Limpiar pagadas",
+    "asistente": "Asistente",
 }
 
 ctk.set_appearance_mode("light")
@@ -138,6 +141,7 @@ class App(ctk.CTk):
             "liberacion_control": PantallaLiberacionControl(self),
             "liberacion_revision": PantallaLiberacionRevision(self),
             "liberacion_limpieza": PantallaLiberacionLimpieza(self),
+            "asistente": PantallaAsistente(self),
             "metricas": PantallaMetricas(self),
             "busqueda": PantallaBusqueda(self),
             "carga": PantallaCargaDatos(self),
@@ -414,6 +418,18 @@ class App(ctk.CTk):
 
         if nombre == "limpieza" and self.df_procesado is not None:
             self.frames["limpieza"].cargar_documentos(self.df_procesado)
+
+    def proceso_actual(self):
+        """Proceso (controlar, netting o liberacion) de la pantalla que se está viendo, o None."""
+        ruta = self._ruta(self._pantalla_actual or "inicio")
+        return ruta[1] if len(ruta) > 1 and ruta[1] in ("controlar", "netting", "liberacion") else None
+
+    def abrir_asistente(self, proceso=None):
+        """Abre el asistente; si se llama desde una etapa, muestra primero las preguntas de esa etapa."""
+        if self._navegacion_bloqueada:
+            return
+        self.frames["asistente"].abrir(proceso)
+        self.mostrar_pantalla("asistente")
 
     def mostrar_pantalla_carga(self):
         self.mostrar_pantalla("carga")

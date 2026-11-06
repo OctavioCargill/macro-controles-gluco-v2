@@ -864,8 +864,10 @@ class PantallaCargaDatos(ctk.CTkFrame):
             )
 
 
-def crear_estado_vacio(pantalla, titulo, descripcion):
-    """Panel que tapa la pantalla cuando todavía no hay datos procesados."""
+def crear_estado_vacio(pantalla, titulo, descripcion, texto_boton="Ir a carga de datos", accion=None):
+    """Panel que tapa la pantalla cuando todavía no hay datos procesados.
+
+    Por defecto el botón lleva a la Carga de datos de Controlar; Netting y Liberación pasan su propio paso 1."""
     vacio = ctk.CTkFrame(pantalla, fg_color=T.FONDO, corner_radius=0)
     centro = ctk.CTkFrame(vacio, fg_color="transparent")
     centro.place(relx=0.5, rely=0.45, anchor="center")
@@ -876,7 +878,7 @@ def crear_estado_vacio(pantalla, titulo, descripcion):
     botones = ctk.CTkFrame(centro, fg_color="transparent")
     botones.pack()
     ctk.CTkButton(
-        botones, text="Ir a carga de datos", command=pantalla.master.mostrar_pantalla_carga,
+        botones, text=texto_boton, command=accion or pantalla.master.mostrar_pantalla_carga,
         width=190, height=T.ALTO_BOTON, corner_radius=T.RADIO_BOTON,
         fg_color=T.PRIMARIO, hover_color=T.PRIMARIO_HOVER, font=T.BOTON,
     ).pack(side="left", padx=6)

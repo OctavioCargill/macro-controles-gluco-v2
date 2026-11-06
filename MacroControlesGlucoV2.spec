@@ -29,6 +29,7 @@ analysis = Analysis(
         "xlsxwriter",
         "netting",
         "liberacion",
+        "asistente",
         "tkinter",
         "pywin32",
     ],

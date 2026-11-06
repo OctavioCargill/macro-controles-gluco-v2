@@ -72,6 +72,31 @@ class MenuPrincipal(ctk.CTkFrame):
         for columna, tarjeta in enumerate((self.modulo_controlar, self.modulo_netting, self.modulo_liberacion)):
             tarjeta.grid(row=0, column=columna, sticky="ew", padx=(0 if columna == 0 else 8, 0 if columna == 2 else 8))
 
+        # --- Asistente
+        asistente = ctk.CTkFrame(contenido, fg_color=T.SUPERFICIE, corner_radius=T.RADIO_PANEL, border_width=1,
+                                 border_color=T.BORDE, cursor="hand2")
+        asistente.pack(fill="x", pady=(20, 0))
+        icono = ctk.CTkLabel(asistente, text="?", width=44, height=44, corner_radius=22, fg_color=T.MARCA,
+                             text_color=T.TEXTO_SOBRE_COLOR, font=(T.FUENTE, 20, "bold"))
+        icono.pack(side="left", padx=(18, 14), pady=14)
+        textos_asistente = ctk.CTkFrame(asistente, fg_color="transparent")
+        textos_asistente.pack(side="left", fill="x", expand=True)
+        titulo_asistente = ctk.CTkLabel(textos_asistente, text="Asistente", font=T.SUBTITULO, text_color=T.TEXTO,
+                                        anchor="w")
+        titulo_asistente.pack(anchor="w")
+        detalle_asistente = ctk.CTkLabel(
+            textos_asistente, anchor="w", font=T.CUERPO_CHICO, text_color=T.TEXTO_SECUNDARIO,
+            text="Guía de uso: preguntas y respuestas sobre Controlar, Netting y Liberación, y qué hacer cuando algo no sale.",
+        )
+        detalle_asistente.pack(anchor="w")
+        ctk.CTkButton(
+            asistente, text="Preguntar  →", command=self.master.abrir_asistente, width=140, height=36,
+            corner_radius=T.RADIO_BOTON, fg_color=T.SECUNDARIO, hover_color=T.SECUNDARIO_HOVER,
+            text_color=T.TEXTO_SOBRE_SECUNDARIO, font=T.ETIQUETA,
+        ).pack(side="right", padx=18)
+        for widget in (asistente, icono, textos_asistente, titulo_asistente, detalle_asistente):
+            widget.bind("<Button-1>", lambda _e: self.master.abrir_asistente())
+
         # --- Pie: salir
         pie = ctk.CTkFrame(contenido, fg_color="transparent")
         pie.pack(side="bottom", fill="x", pady=(0, 10))
@@ -199,8 +224,29 @@ class BarraNavegacion(ctk.CTkFrame):
         self.ruta.pack(side="left", pady=(14, 0))
         self._bloqueada = False
 
+        # Ayuda: abre el asistente con las preguntas de la etapa en la que está el usuario
+        self.btn_ayuda = ctk.CTkButton(
+            self,
+            text="?  Ayuda",
+            command=lambda: self.master.abrir_asistente(self.master.proceso_actual()),
+            width=96,
+            height=32,
+            corner_radius=T.RADIO_BOTON,
+            fg_color="transparent",
+            hover_color=T.SUPERFICIE_ELEVADA,
+            border_width=1,
+            border_color=T.BORDE,
+            text_color=T.TEXTO_SECUNDARIO,
+            font=T.ETIQUETA_CHICA,
+        )
+        self.btn_ayuda.pack(side="right", padx=(16, 30), pady=(14, 0))
+
     def mostrar_ruta(self, pasos):
         """pasos: lista de (clave, título) desde el menú principal hasta la pantalla actual."""
+        if pasos and pasos[-1][0] == "asistente":
+            self.btn_ayuda.pack_forget()
+        elif not self.btn_ayuda.winfo_ismapped():
+            self.btn_ayuda.pack(side="right", padx=(16, 30), pady=(14, 0))
         for widget in self.ruta.winfo_children():
             widget.destroy()
         for indice, (clave, titulo) in enumerate(pasos):
@@ -223,3 +269,4 @@ class BarraNavegacion(ctk.CTkFrame):
     def bloquear(self, bloquear):
         self._bloqueada = bloquear
         self.btn_volver.configure(state="disabled" if bloquear else "normal")
+        self.btn_ayuda.configure(state="disabled" if bloquear else "normal")

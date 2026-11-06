@@ -603,7 +603,8 @@ class PantallaLiberacionRevision(ctk.CTkFrame):
         _boton(acciones, "»", lambda: self._mover(1), tipo="secundario", ancho=44, alto=30).pack(side="left")
 
         self.vacio = crear_estado_vacio(self, "Todavía no hay pagos controlados",
-                                        "Controlá los pagos en el paso 1 para revisarlos acá.")
+                                        "Controlá los pagos en el paso 1 para revisarlos acá.", "Ir a controlar pagos",
+                                        lambda: self.master.mostrar_pantalla("liberacion_control"))
 
     # ------------------------------------------------------------------ datos
     @property

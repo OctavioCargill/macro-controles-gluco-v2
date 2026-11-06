@@ -575,7 +575,8 @@ class PantallaNettingRevision(ctk.CTkFrame):
         _boton(navegacion, "»", lambda: self._mover(1), tipo="secundario", ancho=44, alto=30).pack(side="left")
 
         self.vacio = crear_estado_vacio(
-            self, "Todavía no hay propuestas armadas", "Armá las propuestas en el paso 1 para revisarlas acá.")
+            self, "Todavía no hay propuestas armadas", "Armá las propuestas en el paso 1 para revisarlas acá.",
+            "Ir a armar propuestas", lambda: self.master.mostrar_pantalla("netting_carga"))
 
     def _seccion(self, master, fila, titulo, color, columnas, anchos):
         marco = ctk.CTkFrame(master, fg_color="transparent")
@@ -869,7 +870,8 @@ class PantallaNettingSalida(ctk.CTkFrame):
         marco.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
         self.vacio = crear_estado_vacio(
-            self, "Todavía no hay propuestas armadas", "Armá las propuestas en el paso 1 para generar la salida.")
+            self, "Todavía no hay propuestas armadas", "Armá las propuestas en el paso 1 para generar la salida.",
+            "Ir a armar propuestas", lambda: self.master.mostrar_pantalla("netting_carga"))
 
     def al_mostrar(self):
         resultado = getattr(self.master, "netting_resultado", None)
