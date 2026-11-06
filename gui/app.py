@@ -40,6 +40,7 @@ from gui.pantalla_netting import (
     PantallaNettingSalida,
 )
 from gui.pantalla_asistente import PantallaAsistente
+from gui.ventana_datos import VentanaCarpetaDatos, revisar_carpeta_al_iniciar
 from gui.pantalla_liberacion import (
     MenuLiberacion,
     PantallaLiberacionControl,
@@ -167,6 +168,16 @@ class App(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self.cerrar_aplicacion)
         self.mostrar_pantalla("inicio")
+        # Carpeta compartida en la red: si no hay conexión, avisar antes de trabajar.
+        self.after(600, lambda: revisar_carpeta_al_iniciar(self))
+
+    def abrir_carpeta_datos(self):
+        """Ventana para elegir la carpeta de datos compartida y traer los históricos de la macro."""
+        existente = getattr(self, "_ventana_datos", None)
+        if existente is not None and existente.winfo_exists():
+            existente.lift()
+            return
+        self._ventana_datos = VentanaCarpetaDatos(self)
 
     def _configurar_icono(self):
         if not self.icon_path or not self.icon_path.exists():
@@ -304,6 +315,10 @@ class App(ctk.CTk):
         ctk.CTkButton(
             acciones_ruta, text="Copiar ruta", width=100, command=copiar_ruta, **estilo_chico
         ).pack(side="left")
+        ctk.CTkButton(
+            acciones_ruta, text="Cambiar…", width=90, **estilo_chico,
+            command=lambda: (ventana.destroy(), self.abrir_carpeta_datos()),
+        ).pack(side="left", padx=(8, 0))
         aviso_copia.pack(side="left", padx=10)
 
         # --- Pie

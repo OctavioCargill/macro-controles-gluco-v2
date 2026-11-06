@@ -12,8 +12,8 @@ datas = [
     (str(ROOT / "config" / "app_settings.json"), "config"),
     (str(ROOT / "icon" / "glucovil.ico"), "icon"),
     (str(ROOT / "README.txt"), "."),
-    (str(ROOT / "logs"), "logs"),
-    (str(ROOT / "data"), "data"),
+    # data y logs NO se empaquetan: la app usa las carpetas que están al lado del .exe, y empaquetar data
+    # metería en el ejecutable los reportes e históricos de quien lo genera.
 ]
 
 analysis = Analysis(

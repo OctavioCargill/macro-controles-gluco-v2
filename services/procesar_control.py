@@ -1,4 +1,4 @@
-from services.auditoria import APP_ROOT, resolver_ruta_recurso
+from services.auditoria import APP_DATA_PATH, APP_ROOT, resolver_ruta_recurso
 from loaders.sap044 import cargar_044
 from loaders.sap090 import cargar_090
 
@@ -58,19 +58,23 @@ def ejecutar_control(
     df = generar_id_corto(df)
     df = generar_id_largo(df)
 
-    ruta_historico = resolver_ruta_recurso(
-        "Historico_Documentos_Controlados",
-        base_dir=APP_ROOT,
-        subdir="data",
-        extensiones=[".xlsb", ".xlsx", ".xls", ".csv"],
-    )
+    # Primero el .xlsx, que es el que escribe la app al pasar al histórico: si en la carpeta quedó también
+    # un .xlsb de la macro, leerlo haría controlar contra un histórico distinto del que se actualiza.
+    ruta_historico = APP_DATA_PATH / "Historico_Documentos_Controlados.xlsx"
+    if not ruta_historico.exists():
+        ruta_historico = resolver_ruta_recurso(
+            "Historico_Documentos_Controlados",
+            base_dir=APP_ROOT,
+            subdir="data",
+            extensiones=[".xlsb", ".xlsx", ".xls", ".csv"],
+        )
     if ruta_historico is None:
-        ruta_historico = APP_ROOT / "data" / "Historico_Documentos_Controlados.xlsb"
+        ruta_historico = APP_DATA_PATH / "Historico_Documentos_Controlados.xlsb"
 
     df_historico = cargar_historico(ruta_historico)
 
     df_pagados = cargar_historico_pagados(
-        APP_ROOT / "data" / "historico_pagados.xlsx"
+        APP_DATA_PATH / "historico_pagados.xlsx"
     )
 
     df = marcar_pagados(

@@ -4,7 +4,7 @@ import customtkinter as ctk
 
 from gui import tema as T
 from gui.pantalla_inicio import TarjetaPaso
-from services.auditoria import APP_LOGO_PATH, APP_NAME, APP_VERSION
+from services.auditoria import APP_DATA_COMPARTIDA, APP_DATA_PATH, APP_LOGO_PATH, APP_NAME, APP_VERSION
 
 
 class MenuPrincipal(ctk.CTkFrame):
@@ -52,6 +52,20 @@ class MenuPrincipal(ctk.CTkFrame):
             text_color=T.TEXTO_SECUNDARIO,
             font=T.ETIQUETA_CHICA,
         ).pack(side="right", anchor="n", pady=(4, 0))
+        ctk.CTkButton(
+            cabecera,
+            text=f"Datos: {'carpeta compartida' if APP_DATA_COMPARTIDA else 'carpeta local'}",
+            command=self.master.abrir_carpeta_datos,
+            width=170,
+            height=34,
+            corner_radius=T.RADIO_BOTON,
+            fg_color="transparent",
+            hover_color=T.SUPERFICIE_ELEVADA,
+            border_width=1,
+            border_color=T.BORDE,
+            text_color=T.INFO if APP_DATA_COMPARTIDA else T.TEXTO_SECUNDARIO,
+            font=T.ETIQUETA_CHICA,
+        ).pack(side="right", anchor="n", pady=(4, 0), padx=(0, 8))
 
         # --- Módulos
         ctk.CTkLabel(contenido, text="Módulos", font=T.SUBTITULO, text_color=T.TEXTO).pack(anchor="w", pady=(36, 12))

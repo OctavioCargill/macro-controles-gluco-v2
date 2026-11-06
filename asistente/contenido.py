@@ -123,6 +123,47 @@ PREGUNTAS = [
             "Después abrí la app desde esa copia (cd a la carpeta y py -m gui.app). Tu carpeta data no se toca."
         ),
     },
+    {
+        "id": "gen_compartida",
+        "proceso": "general",
+        "pregunta": "¿Cómo trabajamos dos personas en PCs distintas con los mismos datos?",
+        "claves": "dos usuarios compartir carpeta red compartida otra pc misma informacion sincronizar",
+        "respuesta": (
+            "Las dos apps tienen que usar la misma carpeta de datos en la red. En el menú principal tocá «Datos: …» "
+            "→ «Usar una carpeta compartida…» y elegí la carpeta de red (la misma en las dos PCs). La app se cierra; "
+            "al abrirla de nuevo ya lee y guarda todo ahí.\n"
+            "Así quien controla y libera y quien hace el netting comparten el Histórico de controlados, el de "
+            "pagados y el registro de Netting: lo que uno guarda, el otro lo ve al instante.\n"
+            "Si un día no hay red, la app avisa al abrir en lugar de trabajar con datos viejos."
+        ),
+        "relacionadas": ["gen_en_uso", "gen_migrar"],
+    },
+    {
+        "id": "gen_en_uso",
+        "proceso": "general",
+        "pregunta": "Me dice que otra persona está guardando. ¿Qué hago?",
+        "claves": "en uso otra pc esta guardando bloqueado carpeta en uso esperar simultaneo",
+        "respuesta": (
+            "Cuando las dos PCs comparten la carpeta, mientras una guarda (pasar al histórico, dar salida, controlar "
+            "pagos, Output E1, limpiar pagadas) la otra espera para no pisar los archivos. Esperá unos segundos y "
+            "volvé a tocar el botón: no se perdió nada.\n"
+            "Si la otra app se cerró de golpe, el aviso se libera solo a los 10 minutos."
+        ),
+    },
+    {
+        "id": "gen_migrar",
+        "proceso": "general",
+        "pregunta": "¿Cómo paso los históricos de la macro (.xlsb) a la app?",
+        "claves": "migrar xlsb historico macro convertir pasar importar traer",
+        "respuesta": (
+            "Una sola vez, el día que dejan de usar la macro: menú principal → «Datos: …» → «Traer los históricos de "
+            "la macro». Elegí el .xlsb del Histórico de controlados y el del Histórico de pagados, tocá «Revisar» "
+            "para ver hoja, filas y columnas, y después «Convertir y guardar».\n"
+            "La app los guarda en .xlsx en la carpeta de datos, verifica que estén todas las filas y, si ya había "
+            "un histórico, guarda una copia antes. Desde ese día no hay que seguir actualizando los .xlsb."
+        ),
+        "relacionadas": ["gen_compartida", "gen_backup"],
+    },
     # =========================================================================== CONTROLAR
     {
         "id": "ctl_cargar",

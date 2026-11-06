@@ -10,6 +10,7 @@ from liberacion.motor import (
     A_LIBERAR_EN_E1, NO_SE_ENCONTRO, Avisos, controlar, liberar_manual, preparar_020, resumen_paquetes, ya_liberado,
 )
 from liberacion.salida import actualizar_registro_con_control, exportar_output_e1
+from services.bloqueo import uso_exclusivo
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,8 @@ def ejecutar_control(fuente, ruta_020, ruta_067, config, progreso=None) -> Resul
     )
     if fuente["tipo"] == "registro":
         try:
-            cambiadas = actualizar_registro_con_control(fuente["ruta"], propuestas)
+            with uso_exclusivo("guardando los IDs de pago", Path(fuente["ruta"]).parent):
+                cambiadas = actualizar_registro_con_control(fuente["ruta"], propuestas)
             avanzar(f"Registro de Netting actualizado con los IDs de pago ({cambiadas} filas).")
         except PermissionError as exc:
             resultado.avisos.agregar(str(exc), revisar=True)
@@ -97,13 +99,17 @@ def ejecutar_control(fuente, ruta_020, ruta_067, config, progreso=None) -> Resul
 
 
 def liberacion_manual(resultado: ResultadoLiberacion, paquete):
-    liberar_manual(paquete)
-    if resultado.fuente["tipo"] == "registro":
+    if resultado.fuente["tipo"] != "registro":
+        liberar_manual(paquete)
+        return
+    with uso_exclusivo("liberando un paquete a mano", Path(resultado.fuente["ruta"]).parent):
+        liberar_manual(paquete)
         actualizar_registro_con_control(resultado.fuente["ruta"], paquete["filas"])
 
 
 def generar_output_e1(resultado: ResultadoLiberacion, ruta):
-    return exportar_output_e1(ruta, resultado.paquetes)
+    with uso_exclusivo("generando el Output E1", Path(ruta).parent):
+        return exportar_output_e1(ruta, resultado.paquetes)
 
 
 def sin_id(resultado):

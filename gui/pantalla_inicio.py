@@ -1505,7 +1505,16 @@ class PantallaLimpieza(ctk.CTkFrame):
         )
         self.update_idletasks()
 
-        persistido = self._guardar_historico_controlados(controlados)
+        from services.bloqueo import CarpetaEnUso, uso_exclusivo
+
+        try:
+            with uso_exclusivo("pasando liquidaciones al histórico", self._ruta_historico().parent):
+                persistido = self._guardar_historico_controlados(controlados)
+        except CarpetaEnUso as exc:
+            self.estado.configure(text="Otra PC está guardando: probá en un momento.", text_color=T.AVISO)
+            self._agregar_log(f"No se guardó: {exc}")
+            messagebox.showwarning("Carpeta de datos en uso", str(exc))
+            return
         if not persistido:
             logging.getLogger(__name__).error(
                 "No se eliminan registros de la macro porque la escritura del histórico falló. registros=%s",

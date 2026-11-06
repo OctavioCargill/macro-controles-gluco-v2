@@ -17,6 +17,7 @@ from liberacion.cargas import cargar_020
 from liberacion.motor import ESTADOS_LIBERADOS
 from netting.cargas import ErrorDeCarga, a_fecha, normalizar
 from netting.registro import actualizar_registro
+from services.bloqueo import uso_exclusivo
 
 COLUMNAS_EXTRA_PAGADOS = ("Fecha Netting", "Fecha Acreditación", "ID pago E1")
 DESCUENTOS = {"AH", "RI", "RM", "RT", "X@", "X&", "Q4", "QJ"}
@@ -60,6 +61,16 @@ def _copia_de_seguridad(ruta):
 
 def limpiar_pagadas(ruta_020, ruta_historico, ruta_pagados, fecha_netting: date, fecha_acreditacion: date,
                     solo_estado_a=True, ruta_registro=None, simular=False) -> ResultadoLimpieza:
+    argumentos = (ruta_020, ruta_historico, ruta_pagados, fecha_netting, fecha_acreditacion, solo_estado_a,
+                  ruta_registro, simular)
+    if simular:
+        return _limpiar_pagadas(*argumentos)
+    with uso_exclusivo("limpiando liquidaciones pagadas", Path(ruta_historico).parent):
+        return _limpiar_pagadas(*argumentos)
+
+
+def _limpiar_pagadas(ruta_020, ruta_historico, ruta_pagados, fecha_netting, fecha_acreditacion, solo_estado_a,
+                     ruta_registro, simular):
     from openpyxl import Workbook, load_workbook
 
     ruta_historico, ruta_pagados = Path(ruta_historico), Path(ruta_pagados)

@@ -10,6 +10,7 @@ from netting.config import anios_sin_feriados, feriados_como_fechas, guardar_con
 from netting.motor import Avisos, Estado, TIPOS_BENEFICIARIO, armar_propuestas, preparar_077, preparar_historico
 from netting.salida import asignar_grupos, exportar_propuestas, poner_datos_paquete, resumen_propuestas
 from services.auditoria import APP_DATA_PATH
+from services.bloqueo import uso_exclusivo
 
 logger = logging.getLogger(__name__)
 
@@ -236,10 +237,11 @@ def guardar_datos_paquete(resultado: ResultadoNetting, item, config, observacion
     """Guarda acción, observaciones e ID de pago; si ya se dio salida, también en el registro."""
     poner_datos_paquete(item, observaciones=observaciones, accion=accion, id_pago=id_pago)
     if resultado.salida_registrada:
-        registro.actualizar_paquete(
-            ruta_registro(config), resultado, item["ventana"], item["n_propuesta"],
-            {"Acción": accion, "Observaciones": observaciones, "ID pago E1": id_pago},
-        )
+        with uso_exclusivo("guardando datos de un paquete de netting", ruta_registro(config).parent):
+            registro.actualizar_paquete(
+                ruta_registro(config), resultado, item["ventana"], item["n_propuesta"],
+                {"Acción": accion, "Observaciones": observaciones, "ID pago E1": id_pago},
+            )
         return True
     return False
 
@@ -319,16 +321,17 @@ def generar_salida(resultado: ResultadoNetting, cantidad_analistas: int, carpeta
 
     ruta = Path(carpeta) / NOMBRE_SALIDA
     destino_registro = ruta_registro(config)
-    _verificar_que_se_pueda_escribir(destino_registro)
-    _verificar_que_se_pueda_escribir(ruta)
-    exportar_propuestas(ruta, resultado.propuestas_24, resultado.propuestas_48, info)
-    # Los documentos propuestos quedan registrados: no vuelven a entrar hasta que se liberen.
-    # Si se vuelve a generar el archivo de la misma corrida, no se duplica el registro.
-    if not resultado.salida_registrada:
-        registro.registrar_salida(
-            destino_registro, resultado, (("24", resultado.propuestas_24), ("48", resultado.propuestas_48))
-        )
-        resultado.salida_registrada = True
+    with uso_exclusivo("dando salida al netting", destino_registro.parent):
+        _verificar_que_se_pueda_escribir(destino_registro)
+        _verificar_que_se_pueda_escribir(ruta)
+        exportar_propuestas(ruta, resultado.propuestas_24, resultado.propuestas_48, info)
+        # Los documentos propuestos quedan registrados: no vuelven a entrar hasta que se liberen.
+        # Si se vuelve a generar el archivo de la misma corrida, no se duplica el registro.
+        if not resultado.salida_registrada:
+            registro.registrar_salida(
+                destino_registro, resultado, (("24", resultado.propuestas_24), ("48", resultado.propuestas_48))
+            )
+            resultado.salida_registrada = True
 
     config["ultimo_numero_propuesta"] = resultado.numero_final
     config["cantidad_analistas"] = cantidad_analistas

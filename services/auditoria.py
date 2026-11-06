@@ -28,18 +28,75 @@ def resolver_ruta_base(base_dir=None):
     return Path(__file__).resolve().parents[1]
 
 
+CLAVE_CARPETA_DATOS = "carpeta_datos"
+
+
+def carpeta_datos_configurada(base_dir=None):
+    """Carpeta de datos elegida en esta PC (config/app_settings.json → "carpeta_datos"), o None.
+
+    Sirve para que dos usuarios en distintas PCs trabajen sobre la misma carpeta de red."""
+    ajustes = resolver_ruta_base(base_dir) / "config" / "app_settings.json"
+    try:
+        valor = json.loads(ajustes.read_text(encoding="utf-8")).get(CLAVE_CARPETA_DATOS)
+    except (OSError, ValueError):
+        return None
+    return Path(valor).expanduser() if valor else None
+
+
+def resolver_carpeta_datos(base_dir=None):
+    """La carpeta compartida si se configuró una; si no, la carpeta data que está al lado del .exe."""
+    return carpeta_datos_configurada(base_dir) or resolver_ruta_base(base_dir) / "data"
+
+
+def guardar_carpeta_datos(carpeta, base_dir=None):
+    """Guarda la carpeta de datos de esta PC (None vuelve a la carpeta data local)."""
+    ajustes = resolver_ruta_base(base_dir) / "config" / "app_settings.json"
+    ajustes.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        contenido = json.loads(ajustes.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        contenido = {}
+    if carpeta:
+        contenido[CLAVE_CARPETA_DATOS] = str(Path(carpeta))
+    else:
+        contenido.pop(CLAVE_CARPETA_DATOS, None)
+    ajustes.write_text(json.dumps(contenido, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def carpeta_datos_disponible(carpeta):
+    """True si la carpeta existe y se puede escribir (en una carpeta de red: si hay conexión y permisos)."""
+    carpeta = Path(carpeta)
+    if not carpeta.is_dir():
+        return False
+    prueba = carpeta / f".glucovil_prueba_{os.getpid()}.tmp"
+    try:
+        prueba.write_text("ok", encoding="utf-8")
+        prueba.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def resolver_estructura_runtime(base_dir=None):
     base = resolver_ruta_base(base_dir)
     rutas = {
         "root": base,
-        "data": base / "data",
+        "data": resolver_carpeta_datos(base),
         "logs": base / "logs",
         "config": base / "config",
         "icon": base / "icon",
     }
-    for nombre, ruta in rutas.items():
-        if nombre in {"data", "logs", "config", "icon"}:
-            ruta.mkdir(parents=True, exist_ok=True)
+    for nombre in ("logs", "config", "icon"):
+        rutas[nombre].mkdir(parents=True, exist_ok=True)
+    if carpeta_datos_configurada(base) is None:
+        rutas["data"].mkdir(parents=True, exist_ok=True)
+    else:
+        # Carpeta compartida: se crea solo si el disco está disponible; si no, la app avisa al abrir.
+        try:
+            if rutas["data"].parent.is_dir():
+                rutas["data"].mkdir(exist_ok=True)
+        except OSError:
+            pass
     return rutas
 
 
@@ -49,6 +106,7 @@ APP_VERSION_DATE = "2026-10-14"
 APP_ROOT = resolver_ruta_base()
 APP_RUNTIME = resolver_estructura_runtime(APP_ROOT)
 APP_DATA_PATH = APP_RUNTIME["data"]
+APP_DATA_COMPARTIDA = carpeta_datos_configurada(APP_ROOT) is not None
 APP_LOGS_PATH = APP_RUNTIME["logs"]
 APP_CONFIG_PATH = APP_RUNTIME["config"]
 APP_ICON_DIR = APP_RUNTIME["icon"]
@@ -136,7 +194,7 @@ def localizar_archivos_por_patron(carpeta, patron, extensiones=None, max_resulta
 
 def resolver_ruta_recurso(nombre, base_dir=None, subdir="data", extensiones=None):
     base = resolver_ruta_base(base_dir)
-    carpeta = (base / subdir).resolve()
+    carpeta = (resolver_carpeta_datos(base) if subdir == "data" else base / subdir).resolve()
     candidatos = localizar_archivos_por_patron(carpeta, nombre, extensiones=extensiones)
     if candidatos:
         return candidatos[0]
@@ -153,7 +211,7 @@ def _ruta_esperada(nombre, base_dir=None):
         "Historico_Documentos_Controlados_fallback": "Historico_Documentos_Controlados_fallback.csv",
     }
     nombre_base = normalizados.get(nombre, nombre)
-    return (base / "data" / nombre_base).resolve()
+    return (resolver_carpeta_datos(base) / nombre_base).resolve()
 
 
 def _to_int(value, default=0):
@@ -322,7 +380,7 @@ def metricas_generales(df=None, resumen=None):
 
 def construir_diagnostico(base_dir=None):
     base = resolver_ruta_base(base_dir)
-    data = (base / "data").resolve()
+    data = resolver_carpeta_datos(base).resolve()
     recursos = validar_archivos_requeridos(base)
     encontrados = [recurso for recurso in recursos if recurso["estado"] == "OK"]
     faltantes = [recurso for recurso in recursos if recurso["estado"] == "FALTANTE"]
