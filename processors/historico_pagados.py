@@ -1,13 +1,16 @@
 import pandas as pd
 
+from processors.ids import ids_validos, normalizar_columnas_id
+
 
 def cargar_historico_pagados(ruta_archivo):
 
-    df_pagados = pd.read_excel(
-        ruta_archivo
-    )
+    """Lee el histórico de pagados. Si no existe, devuelve uno vacío (no hay nada pagado todavía)."""
+    from pathlib import Path
 
-    return df_pagados
+    if not Path(ruta_archivo).exists():
+        return pd.DataFrame(columns=["id_largo", "id_corto"])
+    return normalizar_columnas_id(pd.read_excel(ruta_archivo))
 
 
 def marcar_pagados(
@@ -15,15 +18,8 @@ def marcar_pagados(
     df_pagados
 ):
 
-    ids_largos = set(
-        df_pagados["id_largo"]
-        .astype(str)
-    )
-
-    ids_cortos = set(
-        df_pagados["id_corto"]
-        .astype(str)
-    )
+    ids_largos = ids_validos(df_pagados["id_largo"])
+    ids_cortos = ids_validos(df_pagados["id_corto"])
 
     df["YA_PAGADO"] = (
         df["id_largo"]

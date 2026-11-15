@@ -19,7 +19,7 @@ from netting.servicio import (
     NOMBRE_SALIDA, ejecutar_netting, generar_salida, guardar_datos_paquete, repartir_grupos,
     resumen_por_fecha_de_pago,
 )
-from services.auditoria import APP_DATA_PATH
+from services.auditoria import APP_DATA_PATH, buscar_reporte, resolver_ruta_recurso
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +175,8 @@ class PantallaNettingCarga(ctk.CTkFrame):
         self.config = cargar_config()
         self.rutas = {clave: self.config.get("rutas", {}).get(clave, "") for clave, *_ in ARCHIVOS}
         self.rutas = {k: (v if v and Path(v).exists() else "") for k, v in self.rutas.items()}
+        self._elegidos = set()
+        self._buscar_reportes()
         self._cola = queue.Queue()
         self._procesando = False
         self._crear()
@@ -259,7 +261,20 @@ class PantallaNettingCarga(ctk.CTkFrame):
             checkbox_width=18, checkbox_height=18,
         ).grid(row=3, column=0, columnspan=4, sticky="w", padx=18, pady=(0, 10))
 
+    def _buscar_reportes(self):
+        historico = APP_DATA_PATH / "Historico_Documentos_Controlados.xlsx"
+        if not historico.is_file():
+            historico = resolver_ruta_recurso("Historico_Documentos_Controlados")
+        if "historico" not in self._elegidos and historico:
+            self.rutas["historico"] = str(historico)
+        for codigo in ("077", "090"):
+            if codigo not in self._elegidos:
+                self.rutas[codigo] = str(buscar_reporte(APP_DATA_PATH, codigo) or "")
+
     def al_mostrar(self):
+        if not self._procesando:
+            self._buscar_reportes()
+            self._refrescar_rutas()
         # Después de dar salida, el último N° guardado pasa a ser el punto de partida de la próxima corrida.
         if getattr(self.master, "netting_salida", None) and not self._procesando:
             self.config = cargar_config()
@@ -290,6 +305,7 @@ class PantallaNettingCarga(ctk.CTkFrame):
             filetypes=[("Excel", "*.xlsb *.xlsx *.xlsm *.xls"), ("CSV", "*.csv"), ("Todos", "*.*")],
         )
         if ruta:
+            self._elegidos.add(clave)
             self.rutas[clave] = ruta
             self._refrescar_rutas()
 
@@ -323,6 +339,8 @@ class PantallaNettingCarga(ctk.CTkFrame):
     def armar(self):
         if self._procesando:
             return
+        self._buscar_reportes()
+        self._refrescar_rutas()
         faltan = [titulo for clave, titulo, _ in ARCHIVOS if not self.rutas.get(clave)]
         if faltan:
             messagebox.showwarning("Faltan archivos", "Elegí: " + ", ".join(faltan) + ".")

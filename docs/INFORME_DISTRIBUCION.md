@@ -13,9 +13,9 @@
 
 La aplicación valida en runtime:
 
-- data/044.xlsx
-- data/077.xlsx
-- data/090.xlsx
+- data/control/044.xlsx
+- data/control/077.xlsx
+- data/control/090.xlsx
 - data/Historico_Documentos_Controlados.xlsb
 - data/Historico_Documentos_Controlados_fallback.csv
 - requirements.txt

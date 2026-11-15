@@ -77,6 +77,33 @@ def carpeta_datos_disponible(carpeta):
         return False
 
 
+CARPETAS_REPORTES = {
+    "044": "control", "077": "control", "090": "control",
+    "020": "liberación", "067": "liberación",
+}
+EXTENSIONES_REPORTE = (".xlsx", ".xlsb", ".xlsm", ".xls", ".csv")
+
+
+def buscar_reporte(carpeta_data, codigo, *, limpiar=False, extensiones=None):
+    """El reporte m?s reciente por fecha de modificaci?n en su carpeta."""
+    carpeta_data = Path(carpeta_data).resolve()
+    extensiones = extensiones or EXTENSIONES_REPORTE
+    for carpeta in (carpeta_data / CARPETAS_REPORTES[codigo], carpeta_data):
+        if not carpeta.is_dir():
+            continue
+        candidatos = [
+            archivo for archivo in carpeta.iterdir()
+            if archivo.name.startswith(codigo)
+            and archivo.suffix.lower() in extensiones
+            and archivo.is_file()
+            and (codigo != "020" or
+                 any(t in archivo.stem.lower() for t in ("limpiar", "limpio")) == limpiar)
+        ]
+        if candidatos:
+            return max(candidatos, key=lambda archivo: (archivo.stat().st_mtime_ns, archivo.name))
+    return None
+
+
 def resolver_estructura_runtime(base_dir=None):
     base = resolver_ruta_base(base_dir)
     rutas = {
@@ -97,6 +124,13 @@ def resolver_estructura_runtime(base_dir=None):
                 rutas["data"].mkdir(exist_ok=True)
         except OSError:
             pass
+    if rutas["data"].is_dir():
+        try:
+            for carpeta in set(CARPETAS_REPORTES.values()):
+                (rutas["data"] / carpeta).mkdir(exist_ok=True)
+        except OSError:
+            if carpeta_datos_configurada(base) is None:
+                raise
     return rutas
 
 
@@ -195,6 +229,8 @@ def localizar_archivos_por_patron(carpeta, patron, extensiones=None, max_resulta
 def resolver_ruta_recurso(nombre, base_dir=None, subdir="data", extensiones=None):
     base = resolver_ruta_base(base_dir)
     carpeta = (resolver_carpeta_datos(base) if subdir == "data" else base / subdir).resolve()
+    if subdir == "data" and nombre in CARPETAS_REPORTES:
+        return buscar_reporte(carpeta, nombre, extensiones=extensiones)
     candidatos = localizar_archivos_por_patron(carpeta, nombre, extensiones=extensiones)
     if candidatos:
         return candidatos[0]
@@ -211,7 +247,8 @@ def _ruta_esperada(nombre, base_dir=None):
         "Historico_Documentos_Controlados_fallback": "Historico_Documentos_Controlados_fallback.csv",
     }
     nombre_base = normalizados.get(nombre, nombre)
-    return (resolver_carpeta_datos(base) / nombre_base).resolve()
+    carpeta = resolver_carpeta_datos(base) / CARPETAS_REPORTES.get(nombre, "")
+    return (carpeta / nombre_base).resolve()
 
 
 def _to_int(value, default=0):
@@ -240,9 +277,9 @@ def validar_archivos_requeridos(base_dir=None):
         ("logs", rutas_runtime["logs"], "directorio"),
         ("config", rutas_runtime["config"], "directorio"),
         ("icon", rutas_runtime["icon"], "directorio"),
-        ("044", "044", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
-        ("077", "077", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
-        ("090", "090", "archivo", [".xlsx", ".xls", ".xlsb", ".csv"]),
+        ("044", "044", "archivo", [".xlsx", ".xls", ".xlsb", ".csv", ".xlsm"]),
+        ("077", "077", "archivo", [".xlsx", ".xls", ".xlsb", ".csv", ".xlsm"]),
+        ("090", "090", "archivo", [".xlsx", ".xls", ".xlsb", ".csv", ".xlsm"]),
         ("Historico_Documentos_Controlados", "Historico_Documentos_Controlados", "archivo", [".xlsb", ".xlsx", ".xls", ".csv"]),
         ("Historico_Documentos_Controlados_fallback", "Historico_Documentos_Controlados_fallback", "archivo", [".csv", ".xlsx", ".xls", ".xlsb"]),
     ]

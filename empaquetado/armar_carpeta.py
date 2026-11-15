@@ -5,7 +5,9 @@ Lo llama empaquetado\construir_exe.bat después de PyInstaller. Resultado:
     dist\Glucovil\                     <- esta carpeta se copia al Escritorio de cada usuario
         MacroControlesGlucoV2.exe
         _internal\                     (lo necesita el .exe, no tocar)
-        data\                          los usuarios guardan acá los reportes (044, 090, 077, 020, 067)
+        data\                          reportes e históricos
+            control\                    (044, 077, 090)
+            liberación\                 (020, 067)
             Historico_Documentos_Controlados.xlsx   (vacío, con títulos)
             Historico_Documentos_Controlados_fallback.csv
             historico_pagados.xlsx                  (vacío, con títulos)
@@ -33,10 +35,10 @@ LEEME = """GLUCOVIL - Proceso de liquidaciones (versión {version})
 CÓMO SE USA
 1. Copiá esta carpeta completa (Glucovil) al Escritorio. No muevas el .exe fuera de la carpeta:
    necesita la carpeta _internal que está al lado.
-2. Guardá los reportes en la carpeta data, pisando los del día anterior:
-   - Controlar:  044, 090 y 077  (el nombre tiene que empezar con 044, 090 o 077)
+2. Guardá los reportes en las subcarpetas de data. La app elige el más reciente de cada código:
+   - data/control (Controlar): 044, 090 y 077  (el nombre tiene que empezar con 044, 090 o 077)
    - Netting:    usa el Histórico de controlados, el 077 y el 090
-   - Liberación: 020 y 067; para limpiar pagadas, el 020 nuevo con "limpiar" en el nombre
+   - data/liberación (Liberación): 020 y 067; para limpiar pagadas, el 020 nuevo con "limpiar" en el nombre
 3. Abrí MacroControlesGlucoV2.exe.
 
 En la app, el botón "? Ayuda" (arriba a la derecha) y la tarjeta "Asistente" del menú responden las dudas de uso.
@@ -63,9 +65,9 @@ Si Windows muestra "Windows protegió su PC", elegí "Más información" -> "Eje
 
 LEEME_DATA = """Guardá acá los reportes que bajás de SAP/E1. La app toma solo el más nuevo de cada uno.
 
-  044_...  090_...  077_...    Controlar
-  020_...  067_...             Liberación (Controlar pagos)
-  020_LIMPIAR_...              Liberación (Limpiar pagadas)
+  control/     044_...  090_...  077_...    Controlar y Netting
+  liberación/  020_...  067_...             Liberación (Controlar pagos)
+  liberación/  020_LIMPIAR_...              Liberación (Limpiar pagadas)
 
 Archivos que escribe la app (no borrar):
   Historico_Documentos_Controlados.xlsx, historico_pagados.xlsx, Netting_Propuestos.xlsx
@@ -84,7 +86,7 @@ def _libro(ruta, hoja, titulos):
 
 
 def main():
-    from services.auditoria import APP_VERSION
+    from services.auditoria import APP_VERSION, CARPETAS_REPORTES
 
     if not (ORIGEN / "MacroControlesGlucoV2.exe").exists():
         print(f"No se encontró {ORIGEN / 'MacroControlesGlucoV2.exe'}. Primero corré PyInstaller.")
@@ -99,6 +101,8 @@ def main():
     data = DESTINO / "data"
     for carpeta in (data, DESTINO / "logs", DESTINO / "config"):
         carpeta.mkdir(parents=True)
+    for carpeta in set(CARPETAS_REPORTES.values()):
+        (data / carpeta).mkdir()
     shutil.copy2(REPO / "config" / "app_settings.json", DESTINO / "config" / "app_settings.json")
 
     # Históricos vacíos: CONTROLAR necesita que existan; las columnas se agregan solas al primer uso.

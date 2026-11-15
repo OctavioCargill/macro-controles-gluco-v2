@@ -23,6 +23,8 @@ data/*.xlsx
 data/*.xlsm
 data/*.xlsb
 data/*.csv
+data/control/
+data/liberación/
 ~$*.xlsx
 ~$*.xlsm
 ~$*.xlsb

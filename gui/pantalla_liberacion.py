@@ -21,7 +21,7 @@ from liberacion.motor import (
 )
 from liberacion.salida import NOMBRE_OUTPUT_E1
 from liberacion.servicio import ejecutar_control, generar_output_e1, liberacion_manual
-from services.auditoria import APP_DATA_PATH
+from services.auditoria import APP_DATA_PATH, buscar_reporte
 
 logger = logging.getLogger(__name__)
 
@@ -78,28 +78,6 @@ def _leer_fecha(texto, nombre):
         return datetime.strptime(texto.strip(), "%d/%m/%Y").date()
     except ValueError:
         raise ValueError(f"{nombre}: tiene que tener el formato dd/mm/aaaa.")
-
-
-EXTENSIONES_REPORTE = (".xlsx", ".xlsb", ".xlsm", ".xls", ".csv")
-
-
-def buscar_en_data(prefijo, con=None, sin=()):
-    """El archivo más nuevo de la carpeta data que empieza con el prefijo (como CONTROLAR con el 044/090/077).
-
-    con: texto que el nombre tiene que tener; sin: textos que no tiene que tener (en minúsculas)."""
-    carpeta = Path(APP_DATA_PATH)
-    if not carpeta.exists():
-        return ""
-    candidatos = []
-    for archivo in carpeta.iterdir():
-        nombre = archivo.name.lower()
-        if (not archivo.is_file() or nombre.startswith("~$") or archivo.suffix.lower() not in EXTENSIONES_REPORTE
-                or not nombre.startswith(prefijo) or (con and con not in nombre) or any(t in nombre for t in sin)):
-            continue
-        candidatos.append(archivo)
-    if not candidatos:
-        return ""
-    return str(max(candidatos, key=lambda a: a.stat().st_mtime))
 
 
 def _texto_ruta(etiqueta, ruta, ayuda_vacia="Sin elegir"):
@@ -324,10 +302,9 @@ class PantallaLiberacionControl(_ConTarea, ctk.CTkFrame):
 
     # ------------------------------------------------------------------ datos
     def _buscar_reportes(self):
-        """020 y 067 del día: el más nuevo de la carpeta data (el 020 para limpiar no cuenta)."""
-        for clave, encontrado in (("020", buscar_en_data("020", sin=("limpiar",))), ("067", buscar_en_data("067"))):
-            if clave not in self._elegidos and encontrado:
-                self.rutas[clave] = encontrado
+        for codigo in ("020", "067"):
+            if codigo not in self._elegidos:
+                self.rutas[codigo] = str(buscar_reporte(APP_DATA_PATH, codigo) or "")
 
     def al_mostrar(self):
         if self._procesando:
@@ -417,6 +394,9 @@ class PantallaLiberacionControl(_ConTarea, ctk.CTkFrame):
         return {"tipo": "archivo", "ruta": self.rutas["propuestas"], "ventana": self.ventana}
 
     def controlar(self):
+        if not self._procesando:
+            self._buscar_reportes()
+            self._refrescar_rutas()
         if self._procesando:
             return
         faltan = [nombre for clave, nombre in (("020", "Reporte 020"), ("067", "Reporte 067")) if not self.rutas.get(clave)]
@@ -854,8 +834,8 @@ class PantallaLiberacionLimpieza(_ConTarea, ctk.CTkFrame):
             "historico": rutas.get("historico") or (str(HISTORICO_POR_DEFECTO) if HISTORICO_POR_DEFECTO.exists() else ""),
             "pagados": rutas.get("pagados") or str(PAGADOS_POR_DEFECTO),
         }
-        if not self.rutas["020_limpiar"]:
-            self.rutas["020_limpiar"] = buscar_en_data("020", con="limpiar")
+        self._reporte_manual = False
+        self._buscar_reporte_limpieza()
         self._previa = None
         self._parametros_previa = None
         self._procesando = False
@@ -932,8 +912,14 @@ class PantallaLiberacionLimpieza(_ConTarea, ctk.CTkFrame):
         marco.pack(fill="both", expand=True, padx=16, pady=(0, 12))
         self._refrescar_rutas()
 
+    def _buscar_reporte_limpieza(self):
+        if not self._reporte_manual:
+            self.rutas["020_limpiar"] = str(buscar_reporte(APP_DATA_PATH, "020", limpiar=True) or "")
+
     def al_mostrar(self):
-        self._refrescar_rutas()
+        if not self._procesando:
+            self._buscar_reporte_limpieza()
+            self._refrescar_rutas()
 
     def _refrescar_rutas(self):
         for clave, etiqueta in self.lbl_rutas.items():
@@ -952,6 +938,8 @@ class PantallaLiberacionLimpieza(_ConTarea, ctk.CTkFrame):
                 ("Excel", "*.xlsb *.xlsx *.xlsm *.xls"), ("CSV", "*.csv"), ("Todos", "*.*")]
             ruta = filedialog.askopenfilename(filetypes=tipos, **opciones)
         if ruta:
+            if clave == "020_limpiar":
+                self._reporte_manual = True
             self.rutas[clave] = ruta
             self._refrescar_rutas()
             self._invalidar()
@@ -976,6 +964,9 @@ class PantallaLiberacionLimpieza(_ConTarea, ctk.CTkFrame):
                     ruta_registro=str(registro) if registro.exists() else None)
 
     def vista_previa(self):
+        if not self._procesando:
+            self._buscar_reporte_limpieza()
+            self._refrescar_rutas()
         self._correr(simular=True)
 
     def limpiar(self):

@@ -25,6 +25,8 @@ from services.auditoria import (
     APP_ROOT,
     APP_VERSION,
     asegurar_estructura_runtime,
+    buscar_reporte,
+    EXTENSIONES_REPORTE,
     construir_diagnostico,
     escribir_log_auditoria,
     evaluar_integridad_liquidaciones,
@@ -380,6 +382,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
         super().__init__(master)
         self.master = master
+        self._archivos_manuales = set()
         self.archivo_044 = ""
         self.archivo_090 = ""
         self.archivo_077 = ""
@@ -551,37 +554,12 @@ class PantallaCargaDatos(ctk.CTkFrame):
             logging.getLogger(__name__).exception(mensaje)
         messagebox.showerror(titulo, mensaje)
 
-    def _buscar_archivo_automatico(self, prefijo):
-        ruta_data = self._ruta_data()
-        logger = logging.getLogger(__name__)
-
-        if not ruta_data.exists():
-            logger.error("No existe la carpeta /data para buscar archivos. ruta=%s", ruta_data)
-            return ""
-
-        candidatos = []
-        for archivo in ruta_data.iterdir():
-            if not archivo.is_file():
-                continue
-            nombre = archivo.name.lower()
-            if nombre.startswith(f"{prefijo.lower()}"):
-                candidatos.append(archivo)
-
-        if not candidatos:
-            logger.warning("No se encontró ningún archivo con prefijo %s en %s", prefijo, ruta_data)
-            return ""
-
-        candidatos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        archivo = candidatos[0]
-        logger.info("Archivo localizado automáticamente. prefijo=%s ruta=%s", prefijo, archivo)
-        return str(archivo)
-
     def _cargar_archivo_automatico(self, prefijo, atributo, label):
-        archivo = self._buscar_archivo_automatico(prefijo)
+        archivo = str(buscar_reporte(self._ruta_data(), prefijo) or "")
 
         if not archivo:
             setattr(self, atributo, "")
-            label.configure(text=f"{prefijo} no encontrado en /data")
+            label.configure(text=f"{prefijo} no encontrado en data/control")
             self._agregar_log(f"Error: no se encontró la base {prefijo} en {self._ruta_data()}")
             return False
 
@@ -594,9 +572,9 @@ class PantallaCargaDatos(ctk.CTkFrame):
     def _cargar_archivo_manual(self, prefijo, atributo, label):
         archivo = filedialog.askopenfilename(
             title=f"Seleccionar base {prefijo}",
-            initialdir=str(self._ruta_data()),
+            initialdir=str(self._ruta_data() / "control"),
             filetypes=[
-                ("Archivos Excel", "*.xlsx *.xls *.xlsb *.csv"),
+                ("Archivos Excel", "*.xlsx *.xls *.xlsb *.xlsm *.csv"),
                 ("Todos los archivos", "*.*")
             ]
         )
@@ -613,13 +591,14 @@ class PantallaCargaDatos(ctk.CTkFrame):
             )
             return False
 
-        if path.suffix.lower() not in {".xlsx", ".xls", ".xlsb", ".csv"}:
+        if path.suffix.lower() not in EXTENSIONES_REPORTE:
             self._mostrar_error(
                 "Formato no válido",
                 f"La base {prefijo} tiene un formato no soportado: {path.suffix or 'sin extensión'}. Use Excel o CSV."
             )
             return False
 
+        self._archivos_manuales.add(prefijo)
         setattr(self, atributo, str(path))
         label.configure(text=str(path))
         self.estado.configure(
@@ -640,6 +619,10 @@ class PantallaCargaDatos(ctk.CTkFrame):
         encontrados = []
         faltantes = []
         for prefijo, (atributo, label) in archivos.items():
+            if prefijo in self._archivos_manuales and Path(getattr(self, atributo)).is_file():
+                encontrados.append(getattr(self, atributo))
+                continue
+            self._archivos_manuales.discard(prefijo)
             ok = self._cargar_archivo_automatico(prefijo, atributo, label)
             if ok:
                 encontrados.append(getattr(self, atributo))
@@ -648,11 +631,11 @@ class PantallaCargaDatos(ctk.CTkFrame):
 
         if faltantes:
             self.estado.configure(
-                text=f"Faltan bases: {', '.join(faltantes)}. Verifique la carpeta /data.",
+                text=f"Faltan bases: {', '.join(faltantes)}. Verifique la carpeta data/control.",
                 text_color=T.ERROR
             )
             self._agregar_log(
-                f"Estado: faltan bases para continuar: {', '.join(faltantes)}. Deben estar en /data."
+                f"Estado: faltan bases para continuar: {', '.join(faltantes)}. Deben estar en data/control."
             )
         elif encontrados:
             bases = "044, 090, 077"
@@ -682,13 +665,15 @@ class PantallaCargaDatos(ctk.CTkFrame):
         if self._procesando:
             return
 
+        self._cargar_todas_archivos_automaticos()
         self.actualizar_validacion_archivos()
         recursos = validar_archivos_requeridos(APP_ROOT)
-        faltantes = [recurso["nombre"] for recurso in recursos if recurso["estado"] == "FALTANTE"]
+        faltantes = [r for r in recursos if r["estado"] == "FALTANTE"
+                     and r["nombre"] not in self._archivos_manuales]
         escribir_log_auditoria(f"Inicio de procesamiento. Archivos validados: {', '.join(recurso['nombre'] for recurso in recursos)}")
 
         if faltantes:
-            detalle = "\n".join(f"- {recurso['nombre']}: {recurso['ruta']}" for recurso in recursos if recurso["estado"] == "FALTANTE")
+            detalle = "\n".join(f"- {recurso['nombre']}: {recurso['ruta']}" for recurso in faltantes)
             self._mostrar_error(
                 "Recursos requeridos faltantes",
                 f"No se puede iniciar el procesamiento porque faltan recursos obligatorios:\n{detalle}\n\nRevise la ruta indicada y vuelva a intentar."
@@ -707,7 +692,7 @@ class PantallaCargaDatos(ctk.CTkFrame):
             mensajes = ", ".join(faltantes)
             self._mostrar_error(
                 "Faltan archivos",
-                f"No se encontraron o no están cargados los archivos requeridos: {mensajes}. Verifique la carpeta /data o utilice la carga manual."
+                f"No se encontraron o no están cargados los archivos requeridos: {mensajes}. Verifique la carpeta data/control o utilice la carga manual."
             )
             return
 

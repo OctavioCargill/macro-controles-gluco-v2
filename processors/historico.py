@@ -3,8 +3,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from processors.ids import ids_validos, normalizar_columnas_id
+
 
 def cargar_historico(ruta_archivo):
+    """Lee el histórico de controlados y deja id_largo / id_corto listos (acepta el .xlsb de la macro)."""
+    return normalizar_columnas_id(_leer_historico(ruta_archivo))
+
+
+def _leer_historico(ruta_archivo):
     ruta = Path(ruta_archivo)
     if ruta.suffix.lower() == ".xlsb":
         try:
@@ -38,10 +45,7 @@ def filtrar_controlados(
     df_historico
 ):
 
-    ids_controlados = set(
-        df_historico["id_largo"]
-        .astype(str)
-    )
+    ids_controlados = ids_validos(df_historico["id_largo"])
 
     df_filtrado = df[
         ~df["id_largo"]
@@ -65,10 +69,7 @@ def marcar_revisar(
     df_historico
 ):
 
-    ids_cortos = set(
-        df_historico["id_corto"]
-        .astype(str)
-    )
+    ids_cortos = ids_validos(df_historico["id_corto"])
 
     df["REVISAR"] = (
         df["id_corto"]

@@ -133,8 +133,8 @@ def main():
     # CARGA ARCHIVOS
     # --------------------------------------------------
 
-    archivo_044 = "data/044.xlsx"
-    archivo_090 = "data/090.xlsx"
+    archivo_044 = "data/control/044.xlsx"
+    archivo_090 = "data/control/090.xlsx"
 
     df = cargar_044(archivo_044)
 
