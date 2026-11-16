@@ -6,6 +6,11 @@ pyxlsb>=1.0.0
 XlsxWriter>=3.1
 Pillow>=10.0
 
+# Validación con la Power App y la factura (todo local, sin internet)
+rapidocr>=3.0
+onnxruntime>=1.20
+pypdf>=5.0
+
 # Optional, only needed when Excel COM is desired on Windows.
 # The application should work without this package by using the local fallback exporter.
 pywin32>=306; platform_system == "Windows"

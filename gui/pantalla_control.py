@@ -6,6 +6,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from gui import tema as T
+from gui.validacion_detalle import ValidacionDetalleMixin
 import pandas as pd
 
 from processors.clasificador import (
@@ -58,7 +59,7 @@ class Tarjeta(ctk.CTkFrame):
         )
 
 
-class PantallaControl(ctk.CTkFrame):
+class PantallaControl(ValidacionDetalleMixin, ctk.CTkFrame):
 
     def __init__(self, master):
 
@@ -83,6 +84,7 @@ class PantallaControl(ctk.CTkFrame):
         # La pantalla tiene dos vistas en el mismo lugar: la lista de liquidaciones y el
         # detalle de una liquidación (antes el detalle se abría en otra ventana).
         self._doc_detalle = None
+        self._iniciar_validacion()
         self.vista_lista = ctk.CTkFrame(self, fg_color="transparent")
         self.vista_lista.pack(fill="both", expand=True)
         self.vista_detalle = ctk.CTkFrame(self, fg_color="transparent")
@@ -574,6 +576,7 @@ class PantallaControl(ctk.CTkFrame):
             text_color=T.TEXTO_TENUE, anchor="w",
         )
         self.lbl_comparar.pack(side="left", padx=12, pady=10)
+        self._crear_barra_validacion(cabecera, numero_doc)
 
         # --- Datos de la liquidación
         contenido = ctk.CTkScrollableFrame(self.vista_detalle, fg_color=T.FONDO)
@@ -785,6 +788,8 @@ class PantallaControl(ctk.CTkFrame):
             return df_registros.drop(columns=["_key"]).to_dict("records")
 
         registros_tax = construir_registros_retenciones_percepciones(detalle)
+        self._armar_campos(numero_doc, primer_fila, registros_tax)
+        self._crear_panel_resultados(contenido, numero_doc)
         logger = logging.getLogger(__name__)
         logger.info(
             "Retenciones/percepciones detectadas en detalle para Numero Doc %s: %s",
@@ -883,7 +888,9 @@ class PantallaControl(ctk.CTkFrame):
             if aviso.winfo_exists():
                 aviso.configure(text="", text_color=T.ENLACE)
                 if not tarjeta.get("coincide"):
-                    tarjeta["frame"].configure(border_color=T.BORDE)
+                    tarjeta["frame"].configure(border_color=tarjeta.get("borde_validacion") or T.BORDE)
+                if tarjeta.get("borde_validacion") and self._doc_detalle:
+                    self._pintar_validacion(self._doc_detalle)
 
         self.after(1500, restaurar)
 
@@ -924,7 +931,9 @@ class PantallaControl(ctk.CTkFrame):
         tarjetas = getattr(self, "_tarjetas_detalle", [])
         for tarjeta in tarjetas:
             tarjeta["coincide"] = False
-            tarjeta["frame"].configure(border_color=T.BORDE, border_width=1, fg_color=T.SUPERFICIE)
+            # El color de la validación con la Power App / factura se mantiene
+            borde = tarjeta.get("borde_validacion")
+            tarjeta["frame"].configure(border_color=borde or T.BORDE, border_width=2 if borde else 1, fg_color=T.SUPERFICIE)
         if not buscado:
             self.lbl_comparar.configure(text="Hacé clic en cualquier dato para copiarlo.", text_color=T.TEXTO_TENUE)
             return
@@ -1023,6 +1032,12 @@ class PantallaControl(ctk.CTkFrame):
             self.ver_detalle(numero_doc=numero_doc)
 
     def _marcar_desde_detalle(self, numero_doc, abrir=None):
+        ya_controlada = bool(
+            self.df_original.loc[self.df_original["Numero Doc"].astype(str).str.strip() == str(numero_doc), "CONTROLADO"]
+            .fillna(False).astype(bool).any()
+        ) if "CONTROLADO" in self.df_original.columns else False
+        if not ya_controlada and not self._confirmar_diferencias(numero_doc):
+            return
         self._alternar_controlado(numero_doc)
         self.ver_detalle(numero_doc=abrir or numero_doc)
 

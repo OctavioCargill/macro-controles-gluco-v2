@@ -279,6 +279,39 @@ PREGUNTAS = [
         "pantalla": "visualizacion",
     },
     {
+        "id": "ctl_validar_captura",
+        "proceso": "controlar",
+        "pregunta": "¿Cómo valido una liquidación con una captura de la Power App?",
+        "claves": "captura pantalla power app validar escanear ocr imagen comparar pegar coincidencias inconsistencias",
+        "respuesta": (
+            "En el detalle de la liquidación, barra «Validar»:\n"
+            "1. En la Power App abrí la misma liquidación y apretá Win + Shift + S para recortar la pantalla.\n"
+            "2. Volvé a la app y tocá «Pegar captura de la Power App» (o Ctrl+V). También podés usar «Elegir imagen…».\n"
+            "3. En unos segundos cada tarjeta se pinta: verde si coincide, rojo si es distinto (con el valor que "
+            "muestra la Power App). Abajo queda la tabla con el detalle de cada dato.\n"
+            "La app busca cada etiqueta (Total a pagar, Nro. Legal, Contrato…) y lee el valor que está al lado o "
+            "debajo. «No se ve» quiere decir que ese dato no estaba en la captura. Todo se lee en la PC, sin internet. "
+            "Si marcás como controlada una liquidación con diferencias, la app te pide confirmación."
+        ),
+        "pantalla": "visualizacion",
+        "relacionadas": ["ctl_validar_factura", "ctl_marcar"],
+    },
+    {
+        "id": "ctl_validar_factura",
+        "proceso": "controlar",
+        "pregunta": "¿Cómo controlo los importes contra la factura en PDF?",
+        "claves": "factura pdf importes validar descargar power app total retenciones coe",
+        "respuesta": (
+            "Descargá la factura de la Power App y, en el detalle de la liquidación, tocá «Cargar factura PDF…». "
+            "La app busca en el PDF el total a pagar, el COE, el contrato, los kilos, el importe imponible y cada "
+            "retención o percepción. Si el total no está, muestra el importe del renglón «neto a pagar» o «total» de "
+            "la factura para que veas la diferencia.\n"
+            "Funciona con PDFs con texto y también con PDFs escaneados (los lee como imagen)."
+        ),
+        "pantalla": "visualizacion",
+        "relacionadas": ["ctl_validar_captura"],
+    },
+    {
         "id": "ctl_filtros",
         "proceso": "controlar",
         "pregunta": "¿Puedo filtrar por fecha de pago o buscar un documento?",
