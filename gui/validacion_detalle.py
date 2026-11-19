@@ -4,6 +4,7 @@ Se usa como mixin de PantallaControl: agrega la barra «Validar con la Power App
 (verde coincide, rojo distinto) y muestra el detalle de cada comparación. Todo corre en la PC.
 """
 
+import json
 import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -12,11 +13,38 @@ import customtkinter as ctk
 import pandas as pd
 
 from gui import tema as T
-from validacion.comparador import COINCIDE, DISTINTO, NO_SE_VE, campo, comparar_captura, comparar_factura
+from services.auditoria import APP_CONFIG_PATH
+from validacion import normalizar as N
+from validacion.comparador import (
+    COINCIDE, DISTINTO, NO_SE_VE, REVISAR, TOLERANCIA_POR_DEFECTO, campo, comparar_captura, comparar_factura,
+)
 
-ICONO = {COINCIDE: "✓ Coincide", DISTINTO: "✗ Distinto", NO_SE_VE: "— No se ve"}
-COLOR = {COINCIDE: (T.OK, T.OK_FONDO), DISTINTO: (T.ERROR, T.ERROR_FONDO), NO_SE_VE: (T.TEXTO_TENUE, T.SUPERFICIE)}
+ICONO = {COINCIDE: "✓ Coincide", DISTINTO: "✗ Distinto", NO_SE_VE: "— No se ve", REVISAR: "! A revisar"}
+COLOR = {COINCIDE: (T.OK, T.OK_FONDO), DISTINTO: (T.ERROR, T.ERROR_FONDO), NO_SE_VE: (T.TEXTO_TENUE, T.SUPERFICIE),
+         REVISAR: (T.AVISO, T.AVISO_FONDO)}
+ARCHIVO_CONFIG = Path(APP_CONFIG_PATH) / "validacion.json"
+
+
+def leer_tolerancia():
+    """% de variación aceptado en los importes de la factura (uno solo para todas las facturas)."""
+    try:
+        valor = float(json.loads(ARCHIVO_CONFIG.read_text(encoding="utf-8")).get("tolerancia_factura_pct"))
+        return valor if 0 <= valor <= 50 else TOLERANCIA_POR_DEFECTO
+    except (OSError, ValueError, TypeError):
+        return TOLERANCIA_POR_DEFECTO
+
+
+def guardar_tolerancia(valor):
+    try:
+        contenido = json.loads(ARCHIVO_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        contenido = {}
+    contenido["tolerancia_factura_pct"] = valor
+    ARCHIVO_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    ARCHIVO_CONFIG.write_text(json.dumps(contenido, indent=2), encoding="utf-8")
 ORIGEN = {"captura": "Power App", "factura": "Factura"}
+# Datos que se verifican contra la captura de la Power App (el resto se controla a mano)
+CAMPOS_CAPTURA = ("Contrato", "Kilos", "Nro. Legal (COE)", "Fecha de Pago", "Nro. Doc. Interno")
 
 
 def _valor(fila, columnas):
@@ -37,6 +65,7 @@ class ValidacionDetalleMixin:
     def _iniciar_validacion(self):
         self._validaciones = {}            # numero_doc → {"captura": Validacion, "factura": Validacion}
         self._campos_validacion = {}
+        self._facturas_cargadas = {}       # numero_doc → ruta del PDF (para recalcular si cambia el margen)
         self._validando = False
         self.winfo_toplevel().bind("<Control-v>", self._pegar_captura_atajo, add="+")
         self.winfo_toplevel().bind("<Control-V>", self._pegar_captura_atajo, add="+")
@@ -51,18 +80,24 @@ class ValidacionDetalleMixin:
             "Vendedor": [_valor(primer_fila, ["Nombre Vendedor"]), _valor(primer_fila, ["Vendedor"])],
             "Corredor": [_valor(primer_fila, ["Nombre Corredor"]), _valor(primer_fila, ["Corredor"])],
         }
-        captura = [campo(t["titulo"], t["valor"], alternativas=alternativas.get(t["titulo"], ()))
-                   for t in getattr(self, "_tarjetas_detalle", []) if t["titulo"] != "ID solicitado"]
+        todos = [campo(t["titulo"], t["valor"], alternativas=alternativas.get(t["titulo"], ()))
+                 for t in getattr(self, "_tarjetas_detalle", []) if t["titulo"] != "ID solicitado"]
+        impuestos = []
         for registro in registros_tax:
-            captura.append(campo(f"{registro['Tipo']}: {registro['Concepto']}", registro["Importe"], tipo="importe"))
+            impuesto = campo(f"{registro['Tipo']}: {registro['Concepto']}", registro["Importe"], tipo="importe")
+            impuesto.grupo = "retencion" if registro["Tipo"].startswith("Ret") else "percepcion"
+            impuesto.base = N.importe(registro.get("Base de cálculo"))
+            impuesto.alicuota = N.importe(registro.get("Alícuota (%)"))
+            impuestos.append(impuesto)
+        por_titulo = {c.titulo: c for c in todos}
+        captura = [por_titulo[t] for t in CAMPOS_CAPTURA if t in por_titulo]
 
-        por_titulo = {c.titulo: c for c in captura}
         factura = [por_titulo[t] for t in ("Total a pagar", "Nro. Legal (COE)", "Contrato", "Kilos", "Vendedor")
                    if t in por_titulo]
         imponible = _valor(primer_fila, ["Imponible"])
         if imponible:
             factura.append(campo("Importe imponible (subtotal)", imponible, tipo="importe"))
-        factura += [c for c in captura if c.titulo.startswith(("Retención:", "Percepción:"))]
+        factura += impuestos
         self._campos_validacion[numero_doc] = {"captura": captura, "factura": factura}
 
     # ------------------------------------------------------------------ interfaz
@@ -79,6 +114,15 @@ class ValidacionDetalleMixin:
             side="left", padx=6, pady=10)
         ctk.CTkButton(barra, text="Cargar factura PDF…", width=150, command=self._elegir_factura, **estilo).pack(
             side="left", pady=10)
+        ctk.CTkLabel(barra, text="Margen ±", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(
+            side="left", padx=(12, 2))
+        self.ent_tolerancia = ctk.CTkEntry(barra, width=48, height=30, justify="right", font=T.ETIQUETA_CHICA,
+                                           fg_color=T.SUPERFICIE, border_color=T.BORDE_FUERTE)
+        self.ent_tolerancia.insert(0, f"{leer_tolerancia():g}".replace(".", ","))
+        self.ent_tolerancia.pack(side="left")
+        self.ent_tolerancia.bind("<Return>", lambda _e: self._cambiar_tolerancia())
+        self.ent_tolerancia.bind("<FocusOut>", lambda _e: self._cambiar_tolerancia())
+        ctk.CTkLabel(barra, text="%", font=T.ETIQUETA_CHICA, text_color=T.TEXTO_SECUNDARIO).pack(side="left", padx=(2, 0))
         self.lbl_validacion = ctk.CTkLabel(barra, text="Sacá una captura (Win + Shift + S) y pegala acá.",
                                            font=T.CUERPO_CHICO, text_color=T.TEXTO_TENUE, anchor="w")
         self.lbl_validacion.pack(side="left", padx=12, pady=10)
@@ -122,6 +166,24 @@ class ValidacionDetalleMixin:
         if ruta:
             self._validar("factura", ruta, Path(ruta).name)
 
+    def _cambiar_tolerancia(self):
+        """Guarda el margen (global) y, si ya se cargó la factura de esta liquidación, la vuelve a comparar."""
+        valor = N.importe(self.ent_tolerancia.get())
+        if valor is None or not 0 <= valor <= 50:
+            messagebox.showwarning("Margen", "Ingresá un porcentaje entre 0 y 50 (por ejemplo 2 o 1,5).")
+            self.ent_tolerancia.delete(0, "end")
+            self.ent_tolerancia.insert(0, f"{leer_tolerancia():g}".replace(".", ","))
+            return
+        if valor == leer_tolerancia():
+            return
+        try:
+            guardar_tolerancia(valor)
+        except OSError:
+            pass
+        ruta = self._facturas_cargadas.get(self._doc_detalle)
+        if ruta and not self._validando:
+            self._validar("factura", ruta, Path(ruta).name)
+
     def _validar(self, origen, fuente, nombre):
         numero_doc = self._doc_detalle
         if not numero_doc or self._validando:
@@ -129,6 +191,9 @@ class ValidacionDetalleMixin:
         campos = self._campos_validacion.get(numero_doc, {}).get(origen, [])
         if not campos:
             return
+        if origen == "factura":
+            self._facturas_cargadas[numero_doc] = fuente
+        tolerancia = leer_tolerancia()
         self._validando = True
         self.lbl_validacion.configure(
             text=f"Leyendo {'la captura' if origen == 'captura' else 'la factura'}… (la primera vez tarda un poco más)",
@@ -141,7 +206,7 @@ class ValidacionDetalleMixin:
                 if origen == "captura":
                     resultado = comparar_captura(campos, leer_imagen(fuente), nombre)
                 else:
-                    resultado = comparar_factura(campos, leer_pdf(fuente), nombre)
+                    resultado = comparar_factura(campos, leer_pdf(fuente), nombre, tolerancia_pct=tolerancia)
                 error = None if resultado.renglones_leidos else "No se pudo leer texto en el archivo."
             except LecturaNoDisponible as exc:
                 resultado, error = None, str(exc)
@@ -178,6 +243,10 @@ class ValidacionDetalleMixin:
                 tarjeta["borde_validacion"] = T.ERROR
                 tarjeta["frame"].configure(border_color=T.ERROR, border_width=2)
                 tarjeta["aviso"].configure(text=f"✗ {ORIGEN[origen]}: {distinto.leido}"[:38], text_color=T.ERROR)
+            elif any(r.estado == REVISAR for _, r in items):
+                tarjeta["borde_validacion"] = T.AVISO
+                tarjeta["frame"].configure(border_color=T.AVISO, border_width=2)
+                tarjeta["aviso"].configure(text="! A revisar en la factura", text_color=T.AVISO)
             elif any(r.estado == COINCIDE for _, r in items):
                 tarjeta["borde_validacion"] = T.OK
                 tarjeta["frame"].configure(border_color=T.OK, border_width=2)
@@ -205,7 +274,10 @@ class ValidacionDetalleMixin:
         cabeza.pack(fill="x", padx=14, pady=(12, 6))
         ctk.CTkLabel(cabeza, text="Validación con la Power App y la factura", font=T.SUBTITULO,
                      text_color=T.TEXTO).pack(side="left")
-        archivos = "  ·  ".join(f"{ORIGEN[o]}: {v.archivo}" for o, v in validaciones.items())
+        archivos = "  ·  ".join(
+            f"{ORIGEN[o]}: {v.archivo}" + (f" (margen ±{v.tolerancia_pct:g}%)".replace(".", ",")
+                                          if getattr(v, "tolerancia_pct", None) is not None else "")
+            for o, v in validaciones.items())
         ctk.CTkLabel(cabeza, text=archivos, font=T.NOTA, text_color=T.TEXTO_TENUE).pack(side="right")
 
         columnas = ("Origen", "Dato", "En la app", "Leído", "Resultado", "Detalle")
@@ -218,7 +290,7 @@ class ValidacionDetalleMixin:
             tabla.column(columna, width=anchos[columna], anchor="w", stretch=columna in ("Dato", "Detalle"))
         for estado, (texto, fondo) in COLOR.items():
             tabla.tag_configure(estado, foreground=texto, background=fondo)
-        orden = {DISTINTO: 0, NO_SE_VE: 1, COINCIDE: 2}
+        orden = {DISTINTO: 0, REVISAR: 1, NO_SE_VE: 2, COINCIDE: 3}
         for origen, validacion in validaciones.items():
             for resultado in sorted(validacion.resultados, key=lambda r: orden[r.estado]):
                 tabla.insert("", "end", tags=(resultado.estado,), values=(
@@ -227,8 +299,9 @@ class ValidacionDetalleMixin:
         tabla.pack(fill="x", padx=12, pady=(0, 6))
         ctk.CTkLabel(
             panel, font=T.NOTA, text_color=T.TEXTO_TENUE, anchor="w", justify="left", wraplength=1000,
-            text=("«No se ve» quiere decir que el dato no aparece en la captura o en la factura (no es un error): "
-                  "revisalo a mano si corresponde. La lectura se hace en esta PC, sin internet."),
+            text=("«No se ve»: el dato no aparece en la captura o en la factura (no es un error). «A revisar»: el "
+                  "impuesto no figura tal cual en la factura pero el total coincide. Los importes de la factura "
+                  "coinciden si están dentro del margen ± % elegido. La lectura se hace en esta PC, sin internet."),
         ).pack(fill="x", padx=14, pady=(0, 12))
 
     # ------------------------------------------------------------------ al marcar como controlada

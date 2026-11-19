@@ -287,10 +287,11 @@ PREGUNTAS = [
             "En el detalle de la liquidación, barra «Validar»:\n"
             "1. En la Power App abrí la misma liquidación y apretá Win + Shift + S para recortar la pantalla.\n"
             "2. Volvé a la app y tocá «Pegar captura de la Power App» (o Ctrl+V). También podés usar «Elegir imagen…».\n"
-            "3. En unos segundos cada tarjeta se pinta: verde si coincide, rojo si es distinto (con el valor que "
-            "muestra la Power App). Abajo queda la tabla con el detalle de cada dato.\n"
-            "La app busca cada etiqueta (Total a pagar, Nro. Legal, Contrato…) y lee el valor que está al lado o "
-            "debajo. «No se ve» quiere decir que ese dato no estaba en la captura. Todo se lee en la PC, sin internet. "
+            "3. En unos segundos se verifican cinco datos: Contrato, Kilos, Nro. Legal (COE), Fecha de Pago y "
+            "Nro. Doc. Interno. Cada tarjeta se pinta verde si coincide o roja si es distinta (con el valor que muestra "
+            "la Power App, o «vacío» si el campo está vacío allá). Abajo queda la tabla con el detalle.\n"
+            "La app busca cada etiqueta y lee el valor que está al lado. «No se ve» quiere decir que ese dato no "
+            "estaba en la captura. Todo se lee en la PC, sin internet. "
             "Si marcás como controlada una liquidación con diferencias, la app te pide confirmación."
         ),
         "pantalla": "visualizacion",
@@ -303,9 +304,13 @@ PREGUNTAS = [
         "claves": "factura pdf importes validar descargar power app total retenciones coe",
         "respuesta": (
             "Descargá la factura de la Power App y, en el detalle de la liquidación, tocá «Cargar factura PDF…». "
-            "La app busca en el PDF el total a pagar, el COE, el contrato, los kilos, el importe imponible y cada "
-            "retención o percepción. Si el total no está, muestra el importe del renglón «neto a pagar» o «total» de "
-            "la factura para que veas la diferencia.\n"
+            "La app compara el total a pagar con el renglón «neto a pagar» / «total» de la factura, y busca el COE, el "
+            "contrato, los kilos, el importe imponible y cada retención o percepción.\n"
+            "Los importes coinciden si están dentro del «Margen ± %» de la barra Validar (uno solo para todas las "
+            "facturas; se guarda y, si lo cambiás, la factura se vuelve a comparar). En cada importe se ve la "
+            "diferencia en %.\n"
+            "Si un impuesto no figura solo, se busca dentro del total de retenciones, de percepciones o de impuestos. "
+            "Si igual no aparece pero el total coincide, queda «A revisar» (amarillo) y no cuenta como diferencia.\n"
             "Funciona con PDFs con texto y también con PDFs escaneados (los lee como imagen)."
         ),
         "pantalla": "visualizacion",

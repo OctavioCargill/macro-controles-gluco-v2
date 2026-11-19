@@ -16,6 +16,9 @@ from validacion import normalizar as N
 COINCIDE = "coincide"
 DISTINTO = "distinto"
 NO_SE_VE = "no_se_ve"
+REVISAR = "revisar"            # factura: el impuesto no figura tal cual, pero el total coincide
+
+TOLERANCIA_POR_DEFECTO = 2.0   # % de variación aceptada en los importes de la factura (global)
 
 TIPO_IMPORTE = "importe"
 TIPO_NUMERO = "numero"
@@ -46,6 +49,9 @@ class Campo:
     tipo: str = TIPO_TEXTO
     alias: list = field(default_factory=list)
     alternativas: list = field(default_factory=list)   # otras formas válidas del mismo valor (ej. descripción)
+    grupo: str = ""                                     # factura: "retencion" / "percepcion" para sumar por grupo
+    base: float = None                                  # factura: base de cálculo del impuesto (si se conoce)
+    alicuota: float = None                              # factura: alícuota en % (si se conoce)
 
 
 @dataclass
@@ -72,6 +78,8 @@ class Validacion:
         partes = [f"{self.cantidad(COINCIDE)} coinciden"]
         if self.cantidad(DISTINTO):
             partes.append(f"{self.cantidad(DISTINTO)} distintos")
+        if self.cantidad(REVISAR):
+            partes.append(f"{self.cantidad(REVISAR)} a revisar")
         if self.cantidad(NO_SE_VE):
             partes.append(f"{self.cantidad(NO_SE_VE)} no se ven")
         return " · ".join(partes)
@@ -180,11 +188,25 @@ def _es_etiqueta(renglon, campo_app):
         etiqueta = N.texto(alias)
         if not etiqueta:
             continue
+        if ":" in renglon.texto:
+            # «Etiqueta: valor» en el mismo renglón. Lo de antes de «:» tiene que ser la etiqueta entera
+            # («Fecha de Pago Efectiva:» no es «Fecha de Pago»).
+            antes = N.texto(renglon.texto.split(":", 1)[0])
+            if antes == etiqueta or (len(etiqueta) > 6 and N.parecido(antes, etiqueta) >= 0.9):
+                return True, renglon.texto.split(":", 1)[1].strip()
+            continue
         if texto_renglon == etiqueta or N.parecido(texto_renglon, etiqueta) >= 0.88:
             return True, ""
-        if texto_renglon.startswith(etiqueta + " ") and ":" in renglon.texto:
-            return True, renglon.texto.split(":", 1)[1].strip()
     return False, ""
+
+
+def _es_otra_etiqueta(texto_renglon):
+    """«Motivo demora:», «ID solicitud: 2963»: un renglón que empieza con otra etiqueta no es el valor buscado."""
+    texto_renglon = str(texto_renglon).strip()
+    if not texto_renglon:
+        return True
+    antes = texto_renglon.split(":", 1)[0]
+    return ":" in texto_renglon and any(c.isalpha() for c in antes) and len(antes.split()) <= 5
 
 
 def _candidatos(etiqueta, renglones):
@@ -232,14 +254,24 @@ def comparar_captura(campos, renglones, archivo=""):
         if _vacio(campo_app.valor):
             continue
         leido, nota, estado = "", "", None
+        etiqueta_vacia = False
         for renglon in renglones:
             es, en_el_mismo = _es_etiqueta(renglon, campo_app)
             if not es:
                 continue
-            candidatos = [en_el_mismo] if en_el_mismo else []
-            candidatos += [c.texto for c in _candidatos(renglon, renglones) if id(c) not in etiquetas_de_otros]
+            etiqueta_vacia = True
+            if en_el_mismo or ":" in renglon.texto.rstrip()[-1:]:
+                # «Etiqueta: valor» en un renglón: el valor es lo de después de «:» (vacío = el campo está vacío)
+                candidatos = [en_el_mismo] if en_el_mismo else []
+                if not en_el_mismo:
+                    candidatos += [c.texto for c in _candidatos(renglon, renglones)
+                                   if id(c) not in etiquetas_de_otros and not _es_otra_etiqueta(c.texto)][:1]
+            else:
+                candidatos = [c.texto for c in _candidatos(renglon, renglones)
+                              if id(c) not in etiquetas_de_otros and not _es_otra_etiqueta(c.texto)]
             if not candidatos:
                 continue
+            etiqueta_vacia = False
             coincidente = next((c for c in candidatos if _iguales(campo_app, c)), None)
             if coincidente is not None:
                 estado, leido = COINCIDE, coincidente
@@ -247,6 +279,9 @@ def comparar_captura(campos, renglones, archivo=""):
                 leido = _mas_probable(campo_app, candidatos)
                 estado, nota = DISTINTO, f"La Power App muestra «{leido}»"
             break
+        if estado is None and etiqueta_vacia:
+            # La etiqueta está en la captura pero sin valor: el campo está vacío en la Power App
+            estado, leido, nota = DISTINTO, "(vacío)", "En la Power App el campo está vacío"
         if estado is None:
             encontrado = _aparece(campo_app, renglones)
             if encontrado is not None:
@@ -284,39 +319,126 @@ def _total_de_la_factura(renglones):
     return None
 
 
-def comparar_factura(campos, renglones, archivo=""):
-    """Importes y códigos de la liquidación contra el texto de la factura en PDF."""
+def _dentro(esperado, leido, tolerancia_pct):
+    """True si el importe leído está dentro de ±tolerancia% del de la app."""
+    margen = abs(esperado) * tolerancia_pct / 100
+    return abs(abs(leido) - abs(esperado)) <= max(margen, 0.011)
+
+
+def _diferencia(esperado, leido):
+    if not esperado:
+        return ""
+    porcentaje = (abs(leido) - abs(esperado)) / abs(esperado) * 100
+    if abs(porcentaje) < 0.005:
+        return "exacto"
+    return f"dif. {porcentaje:+.2f}%".replace(".", ",")
+
+
+def _mas_cercano(esperado, importes, tolerancia_pct):
+    dentro = [i for i in importes if _dentro(esperado, i, tolerancia_pct)]
+    return min(dentro, key=lambda i: abs(abs(i) - abs(esperado))) if dentro else None
+
+
+def comparar_factura(campos, renglones, archivo="", tolerancia_pct=TOLERANCIA_POR_DEFECTO):
+    """Importes y códigos de la liquidación contra el texto de la factura en PDF.
+
+    Los importes coinciden si están dentro de ±tolerancia_pct % del valor de la app. El total se compara con el
+    renglón «neto a pagar» / «total» de la factura. Un impuesto que no figura solo se busca también como suma de
+    su grupo (total de retenciones / percepciones / impuestos); si la factura trae el impuesto calculado como
+    base × alícuota y no coincide con el de la app, se marca distinto mostrando ese importe.
+    """
     importes = []
     for renglon in renglones:
-        importes.extend(N.importes_en(renglon.texto))
+        importes.extend(i for i in N.importes_en(renglon.texto) if abs(i) >= 0.01)
+    total_factura = _total_de_la_factura(renglones)
     resultados = []
+    pendientes = []                     # impuestos que no figuran solos: se resuelven al final
+
     for campo_app in campos:
         if _vacio(campo_app.valor):
             continue
-        if campo_app.tipo in (TIPO_IMPORTE, TIPO_NUMERO):
+        if campo_app.tipo == TIPO_NUMERO:
             buscado = N.importe(campo_app.valor)
-            if buscado is None:
-                continue
-            tolerancia = 0.011 if campo_app.tipo == TIPO_IMPORTE else 0.5
-            if any(abs(abs(i) - abs(buscado)) < tolerancia for i in importes):
-                resultados.append(Resultado(campo_app.titulo, campo_app.valor, COINCIDE, campo_app.valor,
-                                            "El importe figura en la factura"))
-                continue
-            total = _total_de_la_factura(renglones) if N.texto(campo_app.titulo).startswith("total") else None
-            if total:
-                resultados.append(Resultado(campo_app.titulo, campo_app.valor, DISTINTO, _formato(total[1]),
-                                            f"La factura dice «{total[0]}»"))
-            else:
-                resultados.append(Resultado(campo_app.titulo, campo_app.valor, NO_SE_VE, "",
-                                            "Ese importe no figura en la factura"))
+            if buscado is not None and any(abs(abs(i) - abs(buscado)) < 0.5 for i in importes):
+                resultados.append(Resultado(campo_app.titulo, campo_app.valor, COINCIDE, campo_app.valor, "Figura en la factura"))
+            elif buscado is not None:
+                resultados.append(Resultado(campo_app.titulo, campo_app.valor, NO_SE_VE, "", "No figura en la factura"))
             continue
-        encontrado = _aparece(campo_app, renglones)
-        if encontrado is not None:
-            resultados.append(Resultado(campo_app.titulo, campo_app.valor, COINCIDE, encontrado.texto,
-                                        "Figura en la factura"))
-        else:
-            resultados.append(Resultado(campo_app.titulo, campo_app.valor, NO_SE_VE, "", "No figura en la factura"))
-    return Validacion("factura", archivo, resultados, len(renglones))
+        if campo_app.tipo != TIPO_IMPORTE:
+            encontrado = _aparece(campo_app, renglones)
+            estado = COINCIDE if encontrado is not None else NO_SE_VE
+            resultados.append(Resultado(campo_app.titulo, campo_app.valor, estado, encontrado.texto if encontrado else "",
+                                        "Figura en la factura" if encontrado else "No figura en la factura"))
+            continue
+
+        buscado = N.importe(campo_app.valor)
+        if buscado is None:
+            continue
+        if N.texto(campo_app.titulo).startswith("total"):
+            if total_factura:
+                texto_total, leido = total_factura
+                estado = COINCIDE if _dentro(buscado, leido, tolerancia_pct) else DISTINTO
+                resultados.append(Resultado(campo_app.titulo, campo_app.valor, estado, _formato(leido),
+                                            f"{_diferencia(buscado, leido)} · renglón «{texto_total}»"))
+            else:
+                cercano = _mas_cercano(buscado, importes, tolerancia_pct)
+                if cercano is not None:
+                    resultados.append(Resultado(campo_app.titulo, campo_app.valor, COINCIDE, _formato(cercano),
+                                                f"{_diferencia(buscado, cercano)} · sin renglón «total»: revisar"))
+                else:
+                    resultados.append(Resultado(campo_app.titulo, campo_app.valor, NO_SE_VE, "",
+                                                "No se encontró el total en la factura"))
+            continue
+
+        cercano = _mas_cercano(buscado, importes, tolerancia_pct)
+        if cercano is not None:
+            resultados.append(Resultado(campo_app.titulo, campo_app.valor, COINCIDE, _formato(cercano),
+                                        _diferencia(buscado, cercano)))
+            continue
+        if campo_app.base and campo_app.alicuota:
+            calculado = campo_app.base * campo_app.alicuota / 100
+            cercano = _mas_cercano(calculado, importes, tolerancia_pct)
+            if cercano is not None:
+                # La factura trae el impuesto calculado sobre la base, pero fuera del margen respecto del de la app
+                resultados.append(Resultado(campo_app.titulo, campo_app.valor, DISTINTO, _formato(cercano),
+                                            f"{_diferencia(buscado, cercano)} · la factura muestra base × alícuota"))
+                continue
+        pendientes.append((campo_app, buscado))
+
+    # Impuestos que no figuran solos: ¿figura la suma del grupo o de todos?
+    if pendientes:
+        impuestos = [c for c in campos if c.grupo and N.importe(c.valor) is not None]
+        sumas = []
+        for grupo, nombre in (("retencion", "total de retenciones"), ("percepcion", "total de percepciones")):
+            del_grupo = [N.importe(c.valor) for c in impuestos if c.grupo == grupo]
+            if len(del_grupo) > 1:
+                sumas.append((grupo, nombre, sum(abs(v) for v in del_grupo)))
+        if len(impuestos) > 1:
+            sumas.append(("", "total de impuestos", sum(abs(N.importe(c.valor)) for c in impuestos)))
+        total_ok = any(r.estado == COINCIDE and N.texto(r.titulo).startswith("total") for r in resultados)
+        for campo_app, buscado in pendientes:
+            resuelto = None
+            for grupo, nombre, suma in sumas:
+                if grupo and campo_app.grupo != grupo:
+                    continue
+                if not campo_app.grupo and grupo:
+                    continue
+                cercano = _mas_cercano(suma, importes, tolerancia_pct)
+                if cercano is not None:
+                    resuelto = Resultado(campo_app.titulo, campo_app.valor, COINCIDE, _formato(cercano),
+                                         f"Incluido en el {nombre} ({_formato(suma)}, {_diferencia(suma, cercano)})")
+                    break
+            if resuelto is None:
+                if total_ok:
+                    resuelto = Resultado(campo_app.titulo, campo_app.valor, REVISAR, "",
+                                         "No figura tal cual en la factura, pero el total coincide")
+                else:
+                    resuelto = Resultado(campo_app.titulo, campo_app.valor, NO_SE_VE, "",
+                                         "Ese importe no figura en la factura")
+            resultados.append(resuelto)
+    validacion = Validacion("factura", archivo, resultados, len(renglones))
+    validacion.tolerancia_pct = tolerancia_pct
+    return validacion
 
 
 def _formato(numero):

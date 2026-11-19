@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from validacion import normalizar as N
-from validacion.comparador import COINCIDE, DISTINTO, NO_SE_VE, campo, comparar_captura, comparar_factura
+from validacion.comparador import COINCIDE, DISTINTO, NO_SE_VE, REVISAR, campo, comparar_captura, comparar_factura
 from validacion.lectura import Renglon
 
 DATOS = Path(__file__).parent / "datos_validacion"
@@ -90,12 +90,39 @@ def test_factura_texto():
     campos = [campo("Total a pagar", "$ 15.200.000,00"), campo("Nro. Legal (COE)", "340000085001"),
               campo("Contrato", "904000001A"), campo("Kilos", "30000"), campo("Retención: IIBB", "$ 206.334,84", "importe"),
               campo("Importe imponible (subtotal)", "13.000.000", "importe")]
-    validacion = comparar_factura(campos, renglones)
+    # La factura dice 14.995.000 y la app 15.200.000: -1,35%
+    validacion = comparar_factura(campos, renglones, tolerancia_pct=1)
     estados = _estados(validacion)
     assert estados == {"Total a pagar": DISTINTO, "Nro. Legal (COE)": COINCIDE, "Contrato": COINCIDE, "Kilos": COINCIDE,
                        "Retención: IIBB": COINCIDE, "Importe imponible (subtotal)": NO_SE_VE}
     total = next(r for r in validacion.resultados if r.titulo == "Total a pagar")
-    assert total.leido == "$ 14.995.000,00" and "neto a pagar" in total.nota
+    assert total.leido == "$ 14.995.000,00" and "neto a pagar" in total.nota and "-1,35%" in total.nota
+    con_margen = comparar_factura(campos, renglones, tolerancia_pct=2)
+    assert _estados(con_margen)["Total a pagar"] == COINCIDE
+    assert _estados(comparar_factura(campos, renglones, tolerancia_pct=6))["Importe imponible (subtotal)"] == COINCIDE
+
+
+def test_factura_impuestos_agrupados_calculados_y_a_revisar():
+    renglones = [Renglon(t) for t in ["Operacion con IVA 15.177.900,00",
+                                      "Total percepciones 321.500,00",          # dos percepciones juntas
+                                      "Retencion Ganancias 52.003,00",          # = base × alícuota, 8% más que el 044
+                                      "Importe neto a pagar 15.200.000,00"]]
+    def impuesto(titulo, valor, grupo, base=None, alicuota=None):
+        c = campo(titulo, valor, "importe")
+        c.grupo, c.base, c.alicuota = grupo, base, alicuota
+        return c
+    campos = [campo("Total a pagar", "$ 15.200.000,00"),
+              impuesto("Percepción: IVA", "$ 300.000,00", "percepcion"),
+              impuesto("Percepción: IIBB", "$ 21.500,00", "percepcion"),
+              impuesto("Retención: Ganancias", "$ 48.000,00", "retencion", base=2_600_150, alicuota=2),
+              impuesto("Retención: SUSS", "$ 9.999,00", "retencion")]
+    validacion = comparar_factura(campos, renglones, tolerancia_pct=2)
+    estados = _estados(validacion)
+    assert estados == {"Total a pagar": COINCIDE, "Percepción: IVA": COINCIDE, "Percepción: IIBB": COINCIDE,
+                       "Retención: Ganancias": DISTINTO, "Retención: SUSS": REVISAR}
+    notas = {r.titulo: r.nota for r in validacion.resultados}
+    assert "total de percepciones" in notas["Percepción: IIBB"] and "base × alícuota" in notas["Retención: Ganancias"]
+    assert validacion.resumen == "3 coinciden · 1 distintos · 1 a revisar" and validacion.hay_diferencias
 
 
 @pytest.mark.skipif(not HAY_PDF, reason="falta pypdf")
@@ -115,5 +142,29 @@ def test_ocr_captura_y_factura_escaneada():
     estados = _estados(comparar_captura(campos, leer_imagen(DATOS / "captura_mal.png")))
     assert estados == {"Total a pagar": DISTINTO, "Contrato": COINCIDE, "Fecha de Pago": DISTINTO,
                        "Nro. Doc. Interno": COINCIDE}
-    escaneada = comparar_factura(campos[:2], leer_pdf(DATOS / "factura_escaneada.pdf"))
+    escaneada = comparar_factura(campos[:2], leer_pdf(DATOS / "factura_escaneada.pdf"), tolerancia_pct=1)
     assert _estados(escaneada) == {"Total a pagar": DISTINTO, "Contrato": COINCIDE}
+
+
+def test_captura_etiqueta_dos_puntos_como_la_power_app():
+    # Diseño real de la Power App: «Etiqueta: valor» en tres columnas, con campos vacíos al lado (datos inventados)
+    filas = [("Contrato: 904000001A",), ("Kilos: 30000", "Obs. de Pago:", "Vendedor: LA ESPERANZA DEMO SA"),
+             ("Conforme: Si", "Forma de Pago: Transferencia", "Corredor: SIN CORREDOR"),
+             ("Tipo Documento: Parcial (L#)", "Fecha de Pago: 10/11/2026", "Tipo Vendedor: VENDEDOR"),
+             ("Nro. Doc. Interno: 85001", "Nro. Legal: 340000085001", "Fecha de Pago Efectiva:"),
+             ("Estado Liq.: A", "Motivo demora:", "ID solicitud: 2963")]
+    renglones = [_r(texto, 10 + 500 * columna, 40 + 55 * fila, 10 + 500 * columna + 9 * len(texto), 60 + 55 * fila)
+                 for fila, columnas in enumerate(filas) for columna, texto in enumerate(columnas)]
+    campos = [campo("Contrato", "904000001A"), campo("Kilos", "30000.0"), campo("Nro. Legal (COE)", "340000085001"),
+              campo("Fecha de Pago", "10/11/2026"), campo("Nro. Doc. Interno", "85001"),
+              campo("Fecha de Pago Efectiva", "10/11/2026"), campo("Estado Liq.", "A")]
+    estados = _estados(comparar_captura(campos, renglones))
+    assert estados == {"Contrato": COINCIDE, "Kilos": COINCIDE, "Nro. Legal (COE)": COINCIDE, "Fecha de Pago": COINCIDE,
+                       "Nro. Doc. Interno": COINCIDE, "Estado Liq.": COINCIDE,
+                       "Fecha de Pago Efectiva": DISTINTO}      # vacía en la Power App: no toma la fecha de otro campo
+
+
+def test_captura_solo_los_cinco_campos():
+    from gui.validacion_detalle import CAMPOS_CAPTURA
+
+    assert CAMPOS_CAPTURA == ("Contrato", "Kilos", "Nro. Legal (COE)", "Fecha de Pago", "Nro. Doc. Interno")
